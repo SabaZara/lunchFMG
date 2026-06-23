@@ -163,12 +163,31 @@ REM ---------------------------------------------------------------------------
 REM  8. Start the app (hidden) and the header-injecting proxy (hidden)
 REM ---------------------------------------------------------------------------
 echo.
-if exist "lunch-pids.txt" del /q "lunch-pids.txt"
+if exist "lunch-pids.txt" (
+  echo Stopping previous LUNCH background processes ...
+  for /f "tokens=1,2,*" %%a in (lunch-pids.txt) do (
+    taskkill /PID %%b /T /F >nul 2>&1
+  )
+  del /q "lunch-pids.txt" >nul 2>&1
+)
+if exist "app.log" del /q "app.log"
+if exist "proxy.log" del /q "proxy.log"
 
 echo Starting the app on http://127.0.0.1:%PORT% ...
 "%VENV_PY%" scripts\start_hidden.py --label app --log app.log --pid-file lunch-pids.txt -- "%VENV_PY%" run.py
 if errorlevel 1 (
   echo [ERROR] Could not start the app. Check app.log.
+  pause
+  exit /b 1
+)
+"%VENV_PY%" scripts\wait_for_http.py "http://127.0.0.1:%PORT%/healthz" --label app --seconds 25
+if errorlevel 1 (
+  echo.
+  echo [ERROR] App did not start correctly. app.log follows:
+  echo ---------------------------------------------------------------------------
+  if exist "app.log" type "app.log"
+  echo ---------------------------------------------------------------------------
+  echo Try double-clicking stop.bat, then run start.bat again.
   pause
   exit /b 1
 )
@@ -181,9 +200,17 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
-
-REM Give the app a moment to bind.
-"%VENV_PY%" -c "import time;time.sleep(3)"
+"%VENV_PY%" scripts\wait_for_http.py "http://127.0.0.1:%PROXY_PORT%/healthz" --label proxy --seconds 15
+if errorlevel 1 (
+  echo.
+  echo [ERROR] Tunnel proxy did not start correctly. proxy.log follows:
+  echo ---------------------------------------------------------------------------
+  if exist "proxy.log" type "proxy.log"
+  echo ---------------------------------------------------------------------------
+  echo Try double-clicking stop.bat, then run start.bat again.
+  pause
+  exit /b 1
+)
 
 REM ---------------------------------------------------------------------------
 REM  9. Open the kiosk screen locally.
