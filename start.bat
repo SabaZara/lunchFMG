@@ -94,7 +94,7 @@ if errorlevel 1 (
 REM ---------------------------------------------------------------------------
 REM  5. Validate config (refuses weak password / missing SECRET_KEY) + seed DB
 REM ---------------------------------------------------------------------------
-"%VENV_PY%" -m scripts.seed
+"%VENV_PY%" scripts\startup_prepare.py
 if errorlevel 1 (
   echo.
   echo [ERROR] Startup checks failed (see message above).
@@ -130,12 +130,24 @@ REM ---------------------------------------------------------------------------
 REM  8. Start the app (hidden) and the header-injecting proxy (hidden)
 REM ---------------------------------------------------------------------------
 echo.
+if exist "lunch-pids.txt" del /q "lunch-pids.txt"
+
 echo Starting the app on http://127.0.0.1:%PORT% ...
-start "lunch-app" /min "%VENV_PY%" run.py
+"%VENV_PY%" scripts\start_hidden.py --label app --log app.log --pid-file lunch-pids.txt -- "%VENV_PY%" run.py
+if errorlevel 1 (
+  echo [ERROR] Could not start the app. Check app.log.
+  pause
+  exit /b 1
+)
 
 echo Starting the tunnel proxy on http://127.0.0.1:%PROXY_PORT% ...
 set "PROXY_PORT=%PROXY_PORT%"
-start "lunch-proxy" /min "%VENV_PY%" tunnel_proxy.py
+"%VENV_PY%" scripts\start_hidden.py --label proxy --env PROXY_PORT=%PROXY_PORT% --log proxy.log --pid-file lunch-pids.txt -- "%VENV_PY%" tunnel_proxy.py
+if errorlevel 1 (
+  echo [ERROR] Could not start the tunnel proxy. Check proxy.log.
+  pause
+  exit /b 1
+)
 
 REM Give the app a moment to bind.
 "%VENV_PY%" -c "import time;time.sleep(3)"
@@ -147,7 +159,8 @@ REM ---------------------------------------------------------------------------
 if exist "cloudflared.exe" (
   echo Starting Cloudflare tunnel (remote admin) ...
   if exist "tunnel-url.txt" del /q "tunnel-url.txt"
-  start "lunch-tunnel" /min cmd /c "cloudflared.exe tunnel --no-autoupdate --url http://127.0.0.1:%PROXY_PORT% > tunnel.log 2>&1"
+  if exist "tunnel.log" del /q "tunnel.log"
+  "%VENV_PY%" scripts\start_hidden.py --label tunnel --log tunnel.log --pid-file lunch-pids.txt -- ".\cloudflared.exe" tunnel --no-autoupdate --url http://127.0.0.1:%PROXY_PORT%
   REM Poll the log for the public URL.
   "%VENV_PY%" scripts\print_tunnel_url.py
 ) else (
@@ -162,8 +175,9 @@ echo.
 echo  REMOTE ADMIN URL is shown above (the https://...trycloudflare.com link),
 echo  and also saved in tunnel-url.txt . Open /admin or /reports on it.
 echo  Admin/Reports are BLOCKED on the local machine by design.
+echo  To stop the background processes, double-click stop.bat.
 echo ===========================================================================
 echo.
-echo This window can stay open. Close it (and the minimized windows) to stop.
+echo This window can stay open, or you can close it after copying the URLs.
 pause
 endlocal

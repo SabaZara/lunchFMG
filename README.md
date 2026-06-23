@@ -59,11 +59,13 @@ On the **first run** (needs internet once) `start.bat` will:
 * run startup checks (refuses a weak password / missing `SECRET_KEY`),
 * seed the database (admin account + a few sample cards) if `lunch.db` is missing,
 * download `cloudflared.exe`,
-* start the app + the local proxy + the Cloudflare tunnel in minimized windows,
+* start the app + the local proxy + the Cloudflare tunnel hidden in the background,
 * **print the public remote-admin URL** and also save it to `tunnel-url.txt`.
 
 After first setup, **scanning runs offline forever**. The tunnel only matters
 when you want remote admin.
+
+To stop the background app/proxy/tunnel processes, double-click `stop.bat`.
 
 > If Python is missing, the launcher tells you to install Python 3.11+ and to
 > check **"Add Python to PATH"** during installation.
@@ -259,4 +261,5 @@ tests/          acceptance tests
 run.py          entry point (validates config, then launches uvicorn)
 tunnel_proxy.py local header-injecting proxy (cloudflared -> proxy -> app)
 start.bat       one-click Windows setup + run + tunnel
+stop.bat        stops background processes started by start.bat
 ```
