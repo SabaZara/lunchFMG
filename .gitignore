@@ -1,0 +1,30 @@
+# --- secrets & data: NEVER commit ---
+.env
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# real card lists / imports
+cards*.xlsx
+cards*.csv
+*_cards.xlsx
+*_cards.csv
+
+# downloaded binaries
+cloudflared.exe
+tunnel-url.txt
+
+# python
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

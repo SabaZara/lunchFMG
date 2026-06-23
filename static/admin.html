@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="ka">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ბარათების მართვა — სასადილო</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <header class="topbar">
+    <h1>სასადილო</h1>
+    <nav>
+      <a href="/admin" class="active">ბარათები</a>
+      <a href="/reports">რეპორტები</a>
+    </nav>
+    <span class="spacer"></span>
+    <span class="user" id="userLabel"></span>
+    <button class="ghost small" id="logoutBtn">გასვლა</button>
+  </header>
+
+  <div class="container">
+    <div id="globalMsg"></div>
+
+    <!-- Add / capture a card -->
+    <div class="card">
+      <h2>ბარათის დამატება</h2>
+      <div class="row">
+        <input id="newCard" type="text" placeholder="ბარათის ID" />
+        <button id="addBtn">დამატება</button>
+        <button id="captureBtn" class="ghost" title="დააფოკუსეთ და დაადეთ ბარათი">ბარათის წაკითხვა</button>
+        <span id="captureHint" class="hidden" style="color:var(--muted)">დაელოდეთ ბარათის დადებას…</span>
+      </div>
+      <div id="addMsg"></div>
+    </div>
+
+    <!-- Bulk import -->
+    <div class="card">
+      <h2>ჯგუფური იმპორტი (.xlsx / .csv)</h2>
+      <div class="row">
+        <input id="importFile" type="file" accept=".xlsx,.csv" />
+        <button id="importBtn">ატვირთვა</button>
+      </div>
+      <small style="color:var(--muted)">ერთ სვეტში, ერთი ბარათის ID თითო ხაზზე. წამყვანი ნულები შენარჩუნდება.</small>
+      <div id="importMsg"></div>
+    </div>
+
+    <!-- Card list -->
+    <div class="card">
+      <h2>ბარათები</h2>
+      <div class="row" style="margin-bottom:12px">
+        <input id="search" type="text" placeholder="ძებნა ბარათის ID-ით…" />
+        <button id="searchBtn" class="ghost">ძებნა</button>
+        <span class="spacer" style="flex:1"></span>
+        <span id="countLabel" style="color:var(--muted)"></span>
+      </div>
+      <table>
+        <thead id="tableHead"></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script src="/static/admin.js"></script>
+</body>
+</html>
