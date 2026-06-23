@@ -64,7 +64,32 @@ REM ---------------------------------------------------------------------------
 REM  3. Install / update dependencies
 REM ---------------------------------------------------------------------------
 echo Installing dependencies (first run needs internet) ...
-"%VENV_PY%" -m pip install --upgrade pip >nul 2>&1
+
+REM Some Windows Python installs create a venv without pip. Bootstrap it.
+"%VENV_PY%" -m pip --version >nul 2>&1
+if errorlevel 1 (
+  echo pip is missing in .venv; trying ensurepip ...
+  "%VENV_PY%" -m ensurepip --upgrade
+)
+"%VENV_PY%" -m pip --version >nul 2>&1
+if errorlevel 1 (
+  echo ensurepip did not work; downloading get-pip.py ...
+  "%VENV_PY%" -c "import urllib.request; urllib.request.urlretrieve('https://bootstrap.pypa.io/get-pip.py','get-pip.py')"
+  if errorlevel 1 (
+    echo [ERROR] Could not download get-pip.py. Check internet and try again.
+    pause
+    exit /b 1
+  )
+  "%VENV_PY%" get-pip.py
+  if errorlevel 1 (
+    echo [ERROR] Could not install pip. Install the full Python 3.11 installer with pip enabled.
+    pause
+    exit /b 1
+  )
+  del /q get-pip.py >nul 2>&1
+)
+
+"%VENV_PY%" -m pip install --upgrade pip
 "%VENV_PY%" -m pip install -r requirements.txt
 if errorlevel 1 (
   echo [ERROR] pip install failed. Check your internet connection and try again.
