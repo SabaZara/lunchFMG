@@ -299,6 +299,13 @@ def test_scan_page_and_api_always_open(app_ctx):
     assert c.post("/api/scan", json={"card_id": "whatever"}).status_code == 200
 
 
+def test_kiosk_test_page_is_local_only(app_ctx):
+    ctx = app_ctx
+    c = ctx["client"]
+    assert c.get("/kiosk-test").status_code == 200
+    assert c.get("/kiosk-test", headers=ctx["headers"]).status_code == 403
+
+
 def test_login_rate_limit(app_ctx):
     ctx = app_ctx
     H = ctx["headers"]

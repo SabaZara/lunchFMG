@@ -26,6 +26,10 @@ TUNNEL_HEADER = "x-tunnel-secret"
 _ALWAYS_OPEN_EXACT = {"/", "/healthz", "/favicon.ico"}
 _ALWAYS_OPEN_PREFIXES = ("/static/", "/api/scan")
 
+# Local testing helpers. These should be available on the kiosk PC only, not
+# through the remote tunnel/proxy.
+_LOCAL_ONLY_EXACT = {"/kiosk-test"}
+
 # Protected surfaces (pages + APIs).
 _PROTECTED_PREFIXES = (
     "/admin",
@@ -53,6 +57,17 @@ class TunnelGateMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):  # noqa: ANN001
         path = request.url.path
         settings = get_settings()
+
+        if path in _LOCAL_ONLY_EXACT:
+            secret = settings.tunnel_secret
+            via_tunnel = bool(secret and request.headers.get(TUNNEL_HEADER) == secret)
+            via_https_proxy = request.headers.get("x-forwarded-proto", "").lower() == "https"
+            if via_tunnel or via_https_proxy:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "ტესტის გვერდი მხოლოდ ლოკალურად იხსნება."},
+                )
+            return await call_next(request)
 
         if _is_always_open(path):
             return await call_next(request)

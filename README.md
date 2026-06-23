@@ -99,6 +99,20 @@ The screen auto-returns to neutral after ~2.5s and debounces double taps. A
 small 🔔 button (bottom-right) toggles an optional beep. No names or photos are
 shown, by design.
 
+### Test without a card reader
+
+For local testing on the kiosk PC, open:
+
+```
+http://127.0.0.1:8000/kiosk-test
+```
+
+or double-click `kiosk-test.bat`. This opens a local-only test harness with
+buttons for demo card IDs (`1001`, `1002`, `1003`, `0573856032`, inactive
+`9999`, and an unknown card). It drives the real kiosk page by filling the
+hidden capture input and pressing Enter, the same way a keyboard-mode USB
+reader does. This page is blocked through the remote ngrok tunnel.
+
 ---
 
 ## Remote admin (ngrok stable domain)
@@ -283,5 +297,6 @@ run.py          entry point (validates config, then launches uvicorn)
 tunnel_proxy.py local header-injecting proxy (ngrok -> proxy -> app)
 start.bat       one-click Windows setup + run + tunnel
 kiosk.bat       reopens the local kiosk scan screen
+kiosk-test.bat  opens the local card-reader simulator
 stop.bat        stops background processes started by start.bat
 ```

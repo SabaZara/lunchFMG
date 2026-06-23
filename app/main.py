@@ -59,6 +59,12 @@ def kiosk_page() -> FileResponse:
     return _page("kiosk.html")
 
 
+@app.get("/kiosk-test", include_in_schema=False)
+def kiosk_test_page() -> FileResponse:
+    # Local-only helper for testing the real kiosk flow without a card reader.
+    return _page("kiosk-test.html")
+
+
 @app.get("/login", include_in_schema=False)
 def login_page() -> FileResponse:
     return _page("login.html")
