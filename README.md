@@ -298,5 +298,6 @@ tunnel_proxy.py local header-injecting proxy (ngrok -> proxy -> app)
 start.bat       one-click Windows setup + run + tunnel
 kiosk.bat       reopens the local kiosk scan screen
 kiosk-test.bat  opens the local card-reader simulator
+diagnose.bat    writes diagnose.txt when startup fails
 stop.bat        stops background processes started by start.bat
 ```
