@@ -19,6 +19,7 @@ ngrok.zip
 tunnel-url.txt
 lunch-pids.txt
 *.log
+*.zip
 
 # python
 .venv/
