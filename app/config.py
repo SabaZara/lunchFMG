@@ -51,8 +51,8 @@ class Settings:
     def cookie_secure(self) -> bool:
         """Send the session cookie as Secure only when not bound to localhost-http.
 
-        Over the Cloudflare tunnel the browser sees HTTPS, so the cookie is sent
-        as Secure. We detect "served over the tunnel" at request time instead of
+        Over the remote tunnel the browser sees HTTPS, so the cookie is sent as
+        Secure. We detect "served over the tunnel" at request time instead of
         here (see security.py); this flag is the default for non-local hosts.
         """
         return self.host not in ("127.0.0.1", "localhost")

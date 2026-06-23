@@ -6,14 +6,15 @@ REM  First run (needs internet ONCE):
 REM    * creates a Python virtual environment in .venv
 REM    * installs dependencies from requirements.txt
 REM    * generates SECRET_KEY and TUNNEL_SECRET into .env if missing
-REM    * downloads cloudflared.exe
+REM    * downloads ngrok.exe
 REM    * seeds the database (admin + sample cards) if the DB is missing
 REM
 REM  Every run:
 REM    * starts the app (bound to 127.0.0.1 -- NOT reachable from the LAN)
 REM    * starts the local header-injecting proxy (adds the tunnel secret)
-REM    * starts the Cloudflare quick tunnel hidden in the background
-REM    * prints the public https://...trycloudflare.com URL for remote admin
+REM    * opens the local kiosk screen
+REM    * starts the ngrok tunnel hidden in the background
+REM    * prints the stable ngrok URL for remote admin
 REM
 REM  After first setup the SCAN screen works fully OFFLINE forever. The tunnel
 REM  only matters when you want to reach Admin / Reports remotely.
@@ -104,27 +105,34 @@ if errorlevel 1 (
 )
 
 REM ---------------------------------------------------------------------------
-REM  6. Download cloudflared.exe once
+REM  6. Download ngrok.exe once
 REM ---------------------------------------------------------------------------
-if not exist "cloudflared.exe" (
-  echo Downloading cloudflared.exe ...
-  "%VENV_PY%" -c "import urllib.request; urllib.request.urlretrieve('https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe','cloudflared.exe')"
+if not exist "ngrok.exe" (
+  echo Downloading ngrok.exe ...
+  "%VENV_PY%" -c "import urllib.request, zipfile, pathlib; zip_path='ngrok.zip'; urllib.request.urlretrieve('https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip', zip_path); zipfile.ZipFile(zip_path).extract('ngrok.exe'); pathlib.Path(zip_path).unlink(missing_ok=True)"
   if errorlevel 1 (
-    echo [WARN] Could not download cloudflared.exe. The app + scan screen will
+    echo [WARN] Could not download ngrok.exe. The app + scan screen will
     echo        still run locally; remote admin via tunnel will be unavailable
-    echo        until cloudflared.exe is present.
+    echo        until ngrok.exe is present.
   )
 )
 
 REM ---------------------------------------------------------------------------
-REM  7. Read PORT / PROXY_PORT from .env (defaults 8000 / 8001)
+REM  7. Read PORT / PROXY_PORT / ngrok settings from .env
 REM ---------------------------------------------------------------------------
 set "PORT=8000"
+set "NGROK_AUTHTOKEN="
+set "NGROK_DOMAIN="
 for /f "usebackq tokens=1,* delims==" %%a in (".env") do (
   if /i "%%a"=="PORT" set "PORT=%%b"
+  if /i "%%a"=="NGROK_AUTHTOKEN" set "NGROK_AUTHTOKEN=%%b"
+  if /i "%%a"=="NGROK_DOMAIN" set "NGROK_DOMAIN=%%b"
 )
 set /a PROXY_PORT=%PORT%+1
 set "PROXY_PORT=%PROXY_PORT%"
+set "NGROK_DOMAIN=%NGROK_DOMAIN:https://=%"
+set "NGROK_DOMAIN=%NGROK_DOMAIN:http://=%"
+if "%NGROK_DOMAIN:~-1%"=="/" set "NGROK_DOMAIN=%NGROK_DOMAIN:~0,-1%"
 
 REM ---------------------------------------------------------------------------
 REM  8. Start the app (hidden) and the header-injecting proxy (hidden)
@@ -153,27 +161,44 @@ REM Give the app a moment to bind.
 "%VENV_PY%" -c "import time;time.sleep(3)"
 
 REM ---------------------------------------------------------------------------
-REM  9. Start the Cloudflare quick tunnel hidden, pointed at the PROXY port.
-REM     The public URL is captured into tunnel-url.txt and printed.
+REM  9. Open the kiosk screen locally.
 REM ---------------------------------------------------------------------------
-if exist "cloudflared.exe" (
-  echo Starting Cloudflare tunnel (remote admin) ...
+echo Opening kiosk screen ...
+start "" "http://127.0.0.1:%PORT%/"
+
+REM ---------------------------------------------------------------------------
+REM  10. Start ngrok hidden, pointed at the PROXY port.
+REM      The stable public URL is saved into tunnel-url.txt and printed.
+REM ---------------------------------------------------------------------------
+if exist "ngrok.exe" (
   if exist "tunnel-url.txt" del /q "tunnel-url.txt"
   if exist "tunnel.log" del /q "tunnel.log"
-  "%VENV_PY%" scripts\start_hidden.py --label tunnel --log tunnel.log --pid-file lunch-pids.txt -- ".\cloudflared.exe" tunnel --no-autoupdate --url http://127.0.0.1:%PROXY_PORT%
-  REM Poll the log for the public URL.
-  "%VENV_PY%" scripts\print_tunnel_url.py
+  if "%NGROK_AUTHTOKEN%"=="" (
+    echo [INFO] NGROK_AUTHTOKEN is empty in .env. Skipping remote admin tunnel.
+  ) else if "%NGROK_DOMAIN%"=="" (
+    echo [INFO] NGROK_DOMAIN is empty in .env. Skipping remote admin tunnel.
+  ) else (
+    echo Configuring ngrok auth token ...
+    ".\ngrok.exe" config add-authtoken "%NGROK_AUTHTOKEN%" >nul
+    if errorlevel 1 (
+      echo [WARN] Could not configure ngrok authtoken. Check NGROK_AUTHTOKEN in .env.
+    ) else (
+      echo Starting ngrok tunnel at https://%NGROK_DOMAIN% ...
+      "%VENV_PY%" scripts\start_hidden.py --label tunnel --log tunnel.log --pid-file lunch-pids.txt -- ".\ngrok.exe" http --url %NGROK_DOMAIN% http://127.0.0.1:%PROXY_PORT%
+      "%VENV_PY%" scripts\print_remote_url.py
+    )
+  )
 ) else (
-  echo [INFO] Skipping tunnel (cloudflared.exe missing).
+  echo [INFO] Skipping tunnel (ngrok.exe missing).
 )
 
 echo.
 echo ===========================================================================
 echo  KIOSK (local, offline):   http://127.0.0.1:%PORT%/
-echo  Open that in full-screen on the kiosk PC (press F11 in the browser).
+echo  The kiosk page was opened automatically. Press F11 in the browser.
 echo.
-echo  REMOTE ADMIN URL is shown above (the https://...trycloudflare.com link),
-echo  and also saved in tunnel-url.txt . Open /admin or /reports on it.
+echo  REMOTE ADMIN URL is shown above and saved in tunnel-url.txt.
+echo  Open /admin or /reports on it from your own laptop/phone.
 echo  Admin/Reports are BLOCKED on the local machine by design.
 echo  To stop the background processes, double-click stop.bat.
 echo ===========================================================================

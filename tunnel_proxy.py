@@ -2,19 +2,18 @@
 
 WHY THIS EXISTS
 ---------------
-A Cloudflare *quick* tunnel (trycloudflare.com, no account) cannot inject an
-arbitrary custom request header to the origin on its own. To make the
-remote-only gate airtight with a shared secret, we put this 30-line proxy
-between cloudflared and the app:
+The public tunnel should never point straight at the app. To make the
+remote-only gate airtight with a shared secret, we put this small proxy between
+the tunnel agent and the app:
 
-    browser --HTTPS--> Cloudflare --> cloudflared(local) --> THIS PROXY --> app
+    browser --HTTPS--> ngrok --> ngrok.exe(local) --> THIS PROXY --> app
 
 THIS PROXY:
   * listens on 127.0.0.1:<PROXY_PORT> (NOT on the LAN),
   * adds  X-Tunnel-Secret: <TUNNEL_SECRET>  to every forwarded request,
   * forwards everything to the app on 127.0.0.1:<APP_PORT>.
 
-cloudflared points at the proxy port; the app (gated) sees the secret only on
+ngrok points at the proxy port; the app (gated) sees the secret only on
 tunneled traffic. The kiosk PC's own browser hits the APP port directly, which
 has no secret, so /admin etc. stay blocked locally. Both ports are 127.0.0.1
 only, so the cafeteria LAN can reach neither.

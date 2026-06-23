@@ -57,7 +57,7 @@ def read_session_token(token: str) -> int | None:
 def cookie_is_secure(request: Request) -> bool:
     """Mark the cookie Secure when the client reached us over HTTPS.
 
-    Behind the Cloudflare tunnel the browser uses HTTPS and cloudflared sets
+    Behind the remote tunnel the browser uses HTTPS and the proxy sets
     X-Forwarded-Proto: https. Locally (http://127.0.0.1) we must NOT set Secure
     or the browser would drop the cookie.
     """

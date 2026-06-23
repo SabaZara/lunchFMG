@@ -1,8 +1,8 @@
 """Remote-only gate.
 
 The kiosk PC must only ever see the scan screen. Admin / reports / login and
-their APIs are reachable ONLY through the Cloudflare tunnel, which injects a
-shared secret header on every request. This middleware:
+their APIs are reachable ONLY through the remote tunnel/proxy, which injects a
+shared secret header on every tunneled request. This middleware:
 
   * ALWAYS allows the scan page ("/") and the scan API ("/api/scan"), plus
     static assets and health — so the kiosk works fully offline.

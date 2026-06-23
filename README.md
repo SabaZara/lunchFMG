@@ -17,7 +17,7 @@ English (`ALLOWED` / `DENIED`) so the code and tests are reliable.
 | Audience | Sees | Reachable from |
 |---|---|---|
 | **The company's kiosk PC** | The scan screen only (`/`) | The kiosk PC itself, fully **offline** |
-| **You (operator)** | Admin (`/admin`) + Reports (`/reports`) | **Only remotely** via the Cloudflare tunnel |
+| **You (operator)** | Admin (`/admin`) + Reports (`/reports`) | **Only remotely** via the ngrok tunnel |
 
 * The app binds to **`127.0.0.1`**, so the cafeteria LAN cannot reach it at all.
 * **Scanning works 100% offline.** The SQLite database on the kiosk PC is the
@@ -27,7 +27,7 @@ English (`ALLOWED` / `DENIED`) so the code and tests are reliable.
   Even the kiosk PC's own browser cannot open `/admin`.
 
 ```
-  Your laptop/phone  --HTTPS-->  Cloudflare  -->  cloudflared (on kiosk PC)
+  Your laptop/phone  --HTTPS-->  ngrok  -->  ngrok.exe (on kiosk PC)
         -->  local header-injecting proxy (adds X-Tunnel-Secret)  -->  app
   Kiosk PC browser  -->  app  (no secret -> /admin etc. blocked; / works)
 ```
@@ -50,7 +50,9 @@ English (`ALLOWED` / `DENIED`) so the code and tests are reliable.
 2. Copy `.env.example` to `.env` and set a **strong `ADMIN_PASSWORD`**
    (the app refuses to start with a blank password or `changeme`).
    `SECRET_KEY` and `TUNNEL_SECRET` are filled in automatically on first run.
-3. **Double-click `start.bat`.**
+3. For stable remote access, create a free ngrok account and put your
+   `NGROK_AUTHTOKEN` and assigned `NGROK_DOMAIN` in `.env`.
+4. **Double-click `start.bat`.**
 
 On the **first run** (needs internet once) `start.bat` will:
 
@@ -58,14 +60,16 @@ On the **first run** (needs internet once) `start.bat` will:
 * generate `SECRET_KEY` and `TUNNEL_SECRET` in `.env` if they are blank,
 * run startup checks (refuses a weak password / missing `SECRET_KEY`),
 * seed the database (admin account + a few sample cards) if `lunch.db` is missing,
-* download `cloudflared.exe`,
-* start the app + the local proxy + the Cloudflare tunnel hidden in the background,
-* **print the public remote-admin URL** and also save it to `tunnel-url.txt`.
+* download `ngrok.exe`,
+* start the app + the local proxy + the ngrok tunnel hidden in the background,
+* automatically open the kiosk scan screen,
+* **print the stable remote-admin URL** and also save it to `tunnel-url.txt`.
 
 After first setup, **scanning runs offline forever**. The tunnel only matters
 when you want remote admin.
 
-To stop the background app/proxy/tunnel processes, double-click `stop.bat`.
+To reopen the scan screen, double-click `kiosk.bat`. To stop the background
+app/proxy/tunnel processes, double-click `stop.bat`.
 
 > If Python is missing, the launcher tells you to install Python 3.11+ and to
 > check **"Add Python to PATH"** during installation.
@@ -80,7 +84,9 @@ On the kiosk PC, open a browser at:
 http://127.0.0.1:8000/
 ```
 
-Press **F11** for full-screen. The screen shows **„დაადეთ ბარათი"** and an
+`start.bat` opens this page automatically. If the browser was closed, run
+`kiosk.bat` or open the URL above manually. Press **F11** for full-screen. The
+screen shows **„დაადეთ ბარათი"** and an
 invisible, always-focused field captures the card tap. Results:
 
 * **Allowed** → full green, huge **„ნებადართულია"**, with the time below.
@@ -95,29 +101,42 @@ shown, by design.
 
 ---
 
-## Remote admin (the Cloudflare tunnel)
+## Remote admin (ngrok stable domain)
 
 `start.bat` prints a line like:
 
 ```
-  REMOTE ADMIN URL:  https://something-random.trycloudflare.com
+  REMOTE ADMIN URL:  https://your-assigned-domain.ngrok-free.app
 ```
 
 (also saved in `tunnel-url.txt`). Open it from **your own** laptop or phone:
 
-* `https://…trycloudflare.com/admin` — manage cards
-* `https://…trycloudflare.com/reports` — view who ate / export files
+* `https://your-assigned-domain.ngrok-free.app/admin` — manage cards
+* `https://your-assigned-domain.ngrok-free.app/reports` — view who ate / export files
 
 Log in with `ADMIN_USERNAME` / `ADMIN_PASSWORD` from `.env`.
 
-**Why it is airtight:** the tunnel forwards to a tiny local proxy that injects
-the secret `X-Tunnel-Secret` header (the quick tunnel can't add custom headers
-by itself). The app only unlocks `/admin`, `/reports`, `/login` and their APIs
-when that exact secret is present. Local requests (no secret) get a `403`. The
-scan page and `/api/scan` are always served locally so the kiosk works offline.
+**Why it is airtight:** ngrok forwards to a tiny local proxy that injects the
+secret `X-Tunnel-Secret` header. The app only unlocks `/admin`, `/reports`,
+`/login` and their APIs when that exact secret is present. Local requests
+(no secret) get a `403`. The scan page and `/api/scan` are always served
+locally so the kiosk works offline.
 
-> The quick-tunnel URL changes every time cloudflared restarts. That's expected
-> for the free, no-account tunnel — just grab the new URL from `tunnel-url.txt`.
+### Get your free stable ngrok URL
+
+1. Create/log in to a free ngrok account.
+2. Copy your authtoken from the ngrok dashboard.
+3. Find your assigned free dev domain under **Universal Gateway → Domains**.
+   It looks like `abc123.ngrok-free.app` or `abc123.ngrok-free.dev`.
+4. Put both values in `.env`:
+
+```
+NGROK_AUTHTOKEN=your_ngrok_token_here
+NGROK_DOMAIN=abc123.ngrok-free.app
+```
+
+Do not include `https://` in `NGROK_DOMAIN`. If you paste it accidentally,
+`start.bat` strips it before launching ngrok.
 
 ---
 
@@ -184,6 +203,8 @@ On `/reports`:
 | `ADMIN_PASSWORD` | first admin password (must be strong) | *(none — set it)* |
 | `SECRET_KEY` | signs the session cookie (auto-generated) | *(auto)* |
 | `TUNNEL_SECRET` | shared secret for the remote gate (auto-generated) | *(auto)* |
+| `NGROK_AUTHTOKEN` | ngrok account token for stable tunnel | *(set it)* |
+| `NGROK_DOMAIN` | assigned free ngrok dev domain, no `https://` | *(set it)* |
 | `HOST` | bind address — keep `127.0.0.1` | `127.0.0.1` |
 | `PORT` | app port (proxy uses `PORT+1`) | `8000` |
 | `DB_PATH` | SQLite file | `lunch.db` |
@@ -259,7 +280,8 @@ static/         kiosk / admin / reports / login pages (no build step)
 scripts/        seed + start.bat helpers
 tests/          acceptance tests
 run.py          entry point (validates config, then launches uvicorn)
-tunnel_proxy.py local header-injecting proxy (cloudflared -> proxy -> app)
+tunnel_proxy.py local header-injecting proxy (ngrok -> proxy -> app)
 start.bat       one-click Windows setup + run + tunnel
+kiosk.bat       reopens the local kiosk scan screen
 stop.bat        stops background processes started by start.bat
 ```
