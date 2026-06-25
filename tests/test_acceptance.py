@@ -529,6 +529,46 @@ def test_version_endpoint(app_ctx):
     assert r.json()["version"] == __version__
 
 
+def test_update_endpoint_gated_and_status(app_ctx):
+    """Remote update is gated; status reports version+repo; POST applies without
+    actually pulling/restarting (subprocess mocked)."""
+    import subprocess as _sp
+    ctx = app_ctx
+    c = ctx["client"]
+    H = ctx["headers"]
+
+    # gated: no secret -> 403
+    assert c.get("/api/update/status").status_code == 403
+    assert c.post("/api/update").status_code == 403
+
+    _login(ctx)
+    s = c.get("/api/update/status", headers=H).json()
+    assert "version" in s and "repo" in s
+
+    # Mock the apply step (success) and the detached restart spawn so the test
+    # neither hits GitHub nor restarts anything.
+    import app.routers.update as upd
+
+    class _OK:
+        returncode = 0
+        stdout = "[update] applied 5 files\n"
+        stderr = ""
+
+    spawned = {"called": False}
+    orig_run, orig_popen = upd.subprocess.run, upd.subprocess.Popen
+    upd.subprocess.run = lambda *a, **k: _OK()
+    upd.subprocess.Popen = lambda *a, **k: spawned.__setitem__("called", True)
+    try:
+        r = c.post("/api/update", headers=H)
+    finally:
+        upd.subprocess.run, upd.subprocess.Popen = orig_run, orig_popen
+
+    j = r.json()
+    assert r.status_code == 200 and j["ok"] and j["applied"]
+    assert j["restarting"] is True and spawned["called"] is True
+    assert "applied" in j["output"]
+
+
 def test_scan_page_and_api_always_open(app_ctx):
     ctx = app_ctx
     c = ctx["client"]

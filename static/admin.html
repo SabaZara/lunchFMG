@@ -100,6 +100,18 @@
         <button id="deleteAllBtn" class="small danger" title="ყველა ბარათის წაშლა">ყველას წაშლა</button>
       </div>
     </div>
+
+    <!-- System / remote update -->
+    <div class="card">
+      <h2><span class="h2-ico">🔄</span> სისტემა</h2>
+      <div class="row">
+        <button id="updateBtn">განახლება GitHub-იდან</button>
+        <span class="spacer" style="flex:1"></span>
+        <span id="updateVer" style="color:var(--muted)"></span>
+      </div>
+      <div class="hint" style="margin-top:8px">ჩამოტვირთავს უახლეს კოდს და გადატვირთავს აპს. მონაცემები (ბარათები, .env) უცვლელი რჩება. დასრულების შემდეგ განაახლეთ გვერდი (Ctrl+F5).</div>
+      <div id="updateMsg"></div>
+    </div>
   </div>
 
   <script src="/static/admin.js"></script>

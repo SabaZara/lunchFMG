@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import ConfigError, get_settings, validate_settings
 from .db import init_db
-from .routers import auth, people, reports, scan
+from .routers import auth, people, reports, scan, update
 from .seed import run_startup_seed
 from .tunnel_gate import TunnelGateMiddleware
 
@@ -43,6 +43,7 @@ app.include_router(scan.router)      # always-open (offline kiosk)
 app.include_router(auth.router)      # gated
 app.include_router(people.router)    # gated
 app.include_router(reports.router)   # gated
+app.include_router(update.router)    # gated (remote self-update)
 
 # Static assets (css/js). The gate always allows /static/.
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

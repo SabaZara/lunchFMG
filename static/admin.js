@@ -33,6 +33,9 @@
     bulkBar: document.getElementById("bulkBar"),
     bulkCount: document.getElementById("bulkCount"),
     deleteAllBtn: document.getElementById("deleteAllBtn"),
+    updateBtn: document.getElementById("updateBtn"),
+    updateMsg: document.getElementById("updateMsg"),
+    updateVer: document.getElementById("updateVer"),
     statTotal: document.getElementById("statTotal"),
     statAte: document.getElementById("statAte"),
     statActive: document.getElementById("statActive"),
@@ -364,6 +367,53 @@
   els.exportCsvBtn.addEventListener("click", function () {
     window.location.href = "/api/people/export.csv";
   });
+
+  // ----------------------------- remote update --------------------------- //
+  if (els.updateBtn) {
+    // show current version next to the button
+    fetch("/api/update/status").then(function (r) { return r.json(); })
+      .then(function (s) {
+        if (s && s.version) els.updateVer.textContent = "ვერსია v" + s.version + " • " + (s.repo || "");
+      }).catch(function () {});
+
+    els.updateBtn.addEventListener("click", function () {
+      if (!confirm("ჩამოიტვირთოს უახლესი კოდი GitHub-იდან და გადაიტვირთოს აპლიკაცია?\n(მონაცემები არ წაიშლება)")) return;
+      els.updateBtn.disabled = true;
+      notice(els.updateMsg, "მიმდინარეობს განახლება… (დაახლ. 10–20 წამი)", "warn");
+      api("POST", "/api/update").then(function (res) {
+        if (!res.ok || !(res.j && res.j.ok)) {
+          var out = res.j && res.j.output ? "<br><small>" + esc(res.j.output) + "</small>" : "";
+          notice(els.updateMsg, "განახლება ვერ მოხერხდა." + out, "bad");
+          els.updateBtn.disabled = false;
+          return;
+        }
+        var msg = "კოდი განახლდა";
+        if (res.j.restarting) {
+          msg += " — აპლიკაცია გადაიტვირთება. დაელოდეთ ~10 წამს, შემდეგ განაახლეთ გვერდი (Ctrl+F5).";
+        }
+        if (res.j.output) msg += "<br><small>" + esc(res.j.output) + "</small>";
+        notice(els.updateMsg, msg, "ok");
+        // the app is restarting; poll /api/version and reload when it changes/returns
+        var oldVer = (els.verBadge && els.verBadge.textContent) || "";
+        var tries = 0;
+        var iv = setInterval(function () {
+          tries++;
+          fetch("/api/version").then(function (r) { return r.json(); })
+            .then(function (v) {
+              if (v && v.version) {
+                clearInterval(iv);
+                notice(els.updateMsg, "განახლდა v" + v.version + ". იტვირთება…", "ok");
+                setTimeout(function () { location.reload(); }, 1200);
+              }
+            }).catch(function () { /* app still restarting */ });
+          if (tries > 30) { clearInterval(iv); els.updateBtn.disabled = false; }
+        }, 2000);
+      }).catch(function () {
+        notice(els.updateMsg, "განახლება ვერ მოხერხდა (კავშირი).", "bad");
+        els.updateBtn.disabled = false;
+      });
+    });
+  }
 
   // ----------------------------- chrome ----------------------------------- //
   els.logoutBtn.addEventListener("click", function () {

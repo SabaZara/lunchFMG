@@ -56,11 +56,12 @@ def app_ctx(monkeypatch):
     import app.reports as reports
     importlib.reload(reports)
     # Routers import the reloaded modules.
-    import app.routers.scan, app.routers.auth, app.routers.people, app.routers.reports  # noqa
+    import app.routers.scan, app.routers.auth, app.routers.people, app.routers.reports, app.routers.update  # noqa
     importlib.reload(app.routers.scan)
     importlib.reload(app.routers.auth)
     importlib.reload(app.routers.people)
     importlib.reload(app.routers.reports)
+    importlib.reload(app.routers.update)
     import app.main as main
     importlib.reload(main)
 
