@@ -28,13 +28,21 @@ def main() -> int:
     with Session(engine) as session:
         admin = seed_admin(session)
         admin_name = admin.username
-        sample_added = seed_sample_cards(session) if not db_existed else 0
+        # Demo cards only when explicitly enabled AND the DB is brand new.
+        # A production kiosk (SEED_SAMPLE_CARDS=false, the default) starts with
+        # just the admin, so the real imported list stays clean.
+        if settings.seed_sample_cards and not db_existed:
+            sample_added = seed_sample_cards(session)
+        else:
+            sample_added = 0
 
     print(f"Admin ready: {admin_name}")
     if db_existed:
-        print("Existing database found; sample cards were not re-seeded.")
-    else:
+        print("Existing database found; left as-is.")
+    elif settings.seed_sample_cards:
         print(f"New database created; sample cards added: {sample_added}")
+    else:
+        print("New database created; no demo cards (SEED_SAMPLE_CARDS is off).")
     print("Startup checks passed.")
     return 0
 

@@ -23,10 +23,26 @@
     importMsg: document.getElementById("importMsg"),
     search: document.getElementById("search"),
     searchBtn: document.getElementById("searchBtn"),
+    clearSearchBtn: document.getElementById("clearSearchBtn"),
+    exportCsvBtn: document.getElementById("exportCsvBtn"),
     countLabel: document.getElementById("countLabel"),
     tableHead: document.getElementById("tableHead"),
     tableBody: document.getElementById("tableBody"),
+    filterChips: document.getElementById("filterChips"),
+    bulkBar: document.getElementById("bulkBar"),
+    bulkCount: document.getElementById("bulkCount"),
+    deleteAllBtn: document.getElementById("deleteAllBtn"),
+    statTotal: document.getElementById("statTotal"),
+    statAte: document.getElementById("statAte"),
+    statActive: document.getElementById("statActive"),
+    statRemaining: document.getElementById("statRemaining"),
   };
+
+  // current filter + the people currently shown (after search+filter)
+  var filter = "all";
+  var shown = [];        // full list from the server
+  var selected = {};     // id -> true
+  var searchText = "";   // live client-side filter text
 
   function notice(container, text, kind) {
     container.innerHTML = text ? '<div class="notice ' + kind + '">' + text + "</div>" : "";
@@ -51,19 +67,50 @@
     });
   }
 
-  // ----------------------------- table ----------------------------------- //
-  function renderHead() {
-    var cols = ["ბარათის ID"];
-    if (SHOW_NAMES) { cols.push("სახელი"); cols.push("დეპარტამენტი"); }
-    cols.push("სტატუსი", "დღეს ჭამა", "მოქმედებები");
-    var ths = cols.map(function (c, i) {
-      return '<th class="' + (i === 0 ? "ltr" : "") + '">' + c + "</th>";
-    });
-    els.tableHead.innerHTML = "<tr>" + ths.join("") + "</tr>";
+  // ----------------------------- stats ------------------------------------ //
+  function updateStats(people) {
+    var active = 0, ate = 0;
+    people.forEach(function (p) { if (p.active) active++; if (p.ate_today) ate++; });
+    els.statTotal.textContent = people.length;
+    els.statAte.textContent = ate;
+    els.statActive.textContent = active;
+    els.statRemaining.textContent = Math.max(active - ate, 0);
   }
 
+  // ----------------------------- filtering -------------------------------- //
+  function matchesFilter(p) {
+    // text search (by card id, live)
+    if (searchText && p.card_id.toLowerCase().indexOf(searchText) === -1) return false;
+    switch (filter) {
+      case "active": return p.active;
+      case "inactive": return !p.active;
+      case "ate": return p.ate_count > 0;
+      case "notate": return p.ate_count === 0;
+      default: return true;
+    }
+  }
+
+  // ----------------------------- table ----------------------------------- //
+  function renderHead() {
+    var cols = ['<th class="sel"><input type="checkbox" class="allcheck" id="allCheck" /></th>',
+                '<th class="ltr">ბარათის ID</th>'];
+    if (SHOW_NAMES) { cols.push("<th>სახელი</th>"); cols.push("<th>დეპარტამენტი</th>"); }
+    cols.push("<th>სტატუსი</th>", "<th>დღეს ნაჭამი</th>", "<th>დღიური ლიმიტი</th>",
+              "<th>მოქმედებები</th>");
+    els.tableHead.innerHTML = "<tr>" + cols.join("") + "</tr>";
+    var all = document.getElementById("allCheck");
+    if (all) all.addEventListener("change", function () { toggleAll(all.checked); });
+  }
+
+  function colspan() { return (SHOW_NAMES ? 6 : 4) + 2; }
+
   function rowHtml(p) {
-    var cells = ['<td class="ltr">' + esc(p.card_id) + "</td>"];
+    var isSel = !!selected[p.id];
+    var full = p.ate_count >= p.daily_limit && p.daily_limit > 0;
+    var cells = [
+      '<td class="sel"><input type="checkbox" class="rowcheck" data-id="' + p.id + '"' + (isSel ? " checked" : "") + " /></td>",
+      '<td class="ltr mono">' + esc(p.card_id) + "</td>",
+    ];
     if (SHOW_NAMES) {
       cells.push("<td>" + esc(p.full_name) + "</td>");
       cells.push("<td>" + esc(p.department || "") + "</td>");
@@ -73,47 +120,120 @@
         ? '<span class="badge ok">აქტიური</span>'
         : '<span class="badge off">გათიშული</span>') + "</td>"
     );
-    cells.push(
-      "<td>" + (p.ate_today
-        ? '<span class="badge ok">დიახ</span>'
-        : '<span class="badge off">არა</span>') + "</td>"
-    );
+    // today's meals as a count badge N / limit + a quick mark/clear toggle
     cells.push(
       '<td>' +
-        '<button class="small ghost" data-act="toggle" data-id="' + p.id + '">' +
+        '<span class="badge ' + (full ? "ok" : (p.ate_count > 0 ? "warn-badge" : "off")) + '">' +
+          p.ate_count + " / " + p.daily_limit + "</span> " +
+        '<label class="switch" title="ჭამა: სრულად მონიშვნა / მოხსნა" style="margin-inline-start:8px">' +
+          '<input type="checkbox" data-act="ate" data-id="' + p.id + '"' + (full ? " checked" : "") + " />" +
+          '<span class="track"></span></label>' +
+      "</td>"
+    );
+    // editable per-person daily limit
+    cells.push(
+      '<td><input type="number" min="0" max="99" class="limit-input" data-act="limit" ' +
+        'data-id="' + p.id + '" value="' + p.daily_limit + '" /></td>'
+    );
+    cells.push(
+      '<td class="actions">' +
+        '<button class="small ghost" data-act="toggle" data-id="' + p.id + '" data-active="' + (p.active ? "1" : "0") + '">' +
           (p.active ? "გათიშვა" : "ჩართვა") + "</button> " +
         '<button class="small ghost" data-act="edit" data-id="' + p.id + '" data-card="' + esc(p.card_id) + '">რედაქტ.</button> ' +
         '<button class="small danger" data-act="delete" data-id="' + p.id + '" data-card="' + esc(p.card_id) + '">წაშლა</button>' +
       "</td>"
     );
-    return "<tr>" + cells.join("") + "</tr>";
+    return '<tr data-id="' + p.id + '"' + (isSel ? ' class="selected"' : "") + ">" + cells.join("") + "</tr>";
+  }
+
+  function renderRows() {
+    var list = shown.filter(matchesFilter);
+    els.countLabel.textContent = "ნაჩვენებია: " + list.length;
+    els.tableBody.innerHTML = list.map(rowHtml).join("") ||
+      '<tr><td colspan="' + colspan() + '" style="text-align:center;color:var(--muted);padding:22px">ბარათები ვერ მოიძებნა</td></tr>';
+    refreshBulkBar();
+    syncAllCheck(list);
+  }
+
+  function syncAllCheck(list) {
+    var all = document.getElementById("allCheck");
+    if (!all) return;
+    var visIds = list.map(function (p) { return p.id; });
+    all.checked = visIds.length > 0 && visIds.every(function (id) { return selected[id]; });
   }
 
   function load() {
-    var q = els.search.value.trim();
-    var url = "/api/people" + (q ? "?q=" + encodeURIComponent(q) : "");
-    api("GET", url).then(function (res) {
-      var people = res.j || [];
-      els.countLabel.textContent = "სულ: " + people.length;
-      els.tableBody.innerHTML = people.map(rowHtml).join("") ||
-        '<tr><td colspan="9" style="text-align:center;color:var(--muted)">ბარათები ვერ მოიძებნა</td></tr>';
+    // Always fetch the FULL list; search + filter are applied client-side
+    // (instant, and stats always reflect the whole list).
+    api("GET", "/api/people").then(function (res) {
+      shown = res.j || [];
+      var present = {};
+      shown.forEach(function (p) { present[p.id] = true; });
+      Object.keys(selected).forEach(function (id) { if (!present[id]) delete selected[id]; });
+      renderRows();
+      updateStats(shown);
     });
   }
+
+  // ----------------------------- selection -------------------------------- //
+  function selectedIds() { return Object.keys(selected).map(Number); }
+
+  function refreshBulkBar() {
+    var n = selectedIds().length;
+    els.bulkCount.textContent = n + " მონიშნული";
+    els.bulkBar.classList.toggle("hidden", n === 0);
+  }
+
+  function toggleAll(checked) {
+    shown.filter(matchesFilter).forEach(function (p) {
+      if (checked) selected[p.id] = true; else delete selected[p.id];
+    });
+    renderRows();
+  }
+
+  els.tableBody.addEventListener("change", function (e) {
+    var rc = e.target.closest("input.rowcheck");
+    if (rc) {
+      var id = +rc.dataset.id;
+      if (rc.checked) selected[id] = true; else delete selected[id];
+      var tr = rc.closest("tr"); if (tr) tr.classList.toggle("selected", rc.checked);
+      refreshBulkBar();
+      syncAllCheck(shown.filter(matchesFilter));
+      return;
+    }
+    var cb = e.target.closest('input[data-act="ate"]');
+    if (cb) {
+      var pid = cb.dataset.id, ate = cb.checked;
+      cb.disabled = true;
+      api("POST", "/api/people/" + pid + "/ate", { ate: ate }).then(function (res) {
+        if (!res.ok) { notice(els.globalMsg, (res.j && res.j.detail) || "ვერ შეიცვალა.", "bad"); cb.checked = !ate; cb.disabled = false; }
+        else { notice(els.globalMsg, ate ? "მონიშნულია: სრული ჭამა." : "მოხსნილია დღევანდელი ჭამა.", "ok"); load(); }
+      }).catch(function () { cb.checked = !ate; cb.disabled = false; });
+      return;
+    }
+    var li = e.target.closest('input[data-act="limit"]');
+    if (li) {
+      var lid = li.dataset.id, val = parseInt(li.value, 10);
+      if (isNaN(val) || val < 0) { li.value = 0; val = 0; }
+      li.disabled = true;
+      api("PUT", "/api/people/" + lid, { daily_limit: val }).then(function (res) {
+        if (!res.ok) notice(els.globalMsg, (res.j && res.j.detail) || "ლიმიტი ვერ შეიცვალა.", "bad");
+        else { notice(els.globalMsg, "ლიმიტი განახლდა: " + val, "ok"); load(); }
+        li.disabled = false;
+      }).catch(function () { li.disabled = false; });
+    }
+  });
 
   // --------------------------- row actions -------------------------------- //
   els.tableBody.addEventListener("click", function (e) {
     var btn = e.target.closest("button[data-act]");
     if (!btn) return;
-    var act = btn.dataset.act;
-    var id = btn.dataset.id;
-    var card = btn.dataset.card;
+    var act = btn.dataset.act, id = btn.dataset.id, card = btn.dataset.card;
 
     if (act === "toggle") {
-      // Flip active by reading the current label.
-      var enabling = btn.textContent.indexOf("ჩართვა") >= 0;
+      var enabling = btn.dataset.active === "0";
       api("PUT", "/api/people/" + id, { active: enabling }).then(function (res) {
         if (!res.ok) notice(els.globalMsg, (res.j && res.j.detail) || "შეცდომა", "bad");
-        else notice(els.globalMsg, "", "");
         load();
       });
     } else if (act === "delete") {
@@ -122,8 +242,7 @@
     } else if (act === "edit") {
       var nv = prompt("ბარათის ახალი ID:", card);
       if (nv === null) return;
-      nv = nv.trim();
-      if (!nv) return;
+      nv = nv.trim(); if (!nv) return;
       api("PUT", "/api/people/" + id, { card_id: nv }).then(function (res) {
         if (!res.ok) notice(els.globalMsg, (res.j && res.j.detail) || "შეცდომა", "bad");
         else notice(els.globalMsg, "ბარათი განახლდა.", "ok");
@@ -132,18 +251,57 @@
     }
   });
 
+  // ----------------------------- bulk actions ----------------------------- //
+  var BULK_LABEL = {
+    delete: "წაშლა", activate: "ჩართვა", deactivate: "გათიშვა",
+    ate: "ჭამის მონიშვნა", unate: "ჭამის მოხსნა", setlimit: "ლიმიტის დაყენება",
+  };
+
+  function runBulk(action, ids, all, value) {
+    var body = all ? { action: action, all: true } : { action: action, ids: ids };
+    if (value !== undefined) body.value = value;
+    notice(els.globalMsg, "მიმდინარეობს…", "warn");
+    api("POST", "/api/people/bulk", body).then(function (res) {
+      if (!res.ok) { notice(els.globalMsg, (res.j && res.j.detail) || "ვერ შესრულდა.", "bad"); return; }
+      notice(els.globalMsg, (BULK_LABEL[action] || action) + ": " + res.j.affected + " ბარათი.", "ok");
+      if (action === "delete") selected = {};
+      load();
+    }).catch(function () { notice(els.globalMsg, "ვერ შესრულდა.", "bad"); });
+  }
+
+  els.bulkBar.addEventListener("click", function (e) {
+    var btn = e.target.closest("button[data-bulk]");
+    if (!btn) return;
+    var action = btn.dataset.bulk;
+    var ids = selectedIds();
+    if (!ids.length) return;
+    if (action === "setlimit") {
+      var v = prompt("ახალი დღიური ლიმიტი მონიშნული " + ids.length + " ბარათისთვის:", "2");
+      if (v === null) return;
+      v = parseInt(v, 10);
+      if (isNaN(v) || v < 0) { notice(els.globalMsg, "არასწორი რიცხვი.", "bad"); return; }
+      runBulk("setlimit", ids, false, v);
+      return;
+    }
+    if (action === "delete" &&
+        !confirm("წავშალოთ მონიშნული " + ids.length + " ბარათი? ისტორიაც წაიშლება.")) return;
+    runBulk(action, ids, false);
+  });
+
+  // delete ALL (double confirm)
+  els.deleteAllBtn.addEventListener("click", function () {
+    if (!confirm("ყველა ბარათის წაშლა? ეს ქმედება შეუქცევადია.")) return;
+    if (!confirm("ნამდვილად ყველა? ბაზა დაცარიელდება.")) return;
+    runBulk("delete", null, true);
+  });
+
   // ------------------------------ add ------------------------------------- //
   function addCard() {
     var card = els.newCard.value.trim();
     if (!card) return;
     api("POST", "/api/people", { card_id: card }).then(function (res) {
-      if (!res.ok) {
-        notice(els.addMsg, (res.j && res.j.detail) || "დამატება ვერ მოხერხდა.", "bad");
-      } else {
-        notice(els.addMsg, "ბარათი დაემატა: " + esc(card), "ok");
-        els.newCard.value = "";
-        load();
-      }
+      if (!res.ok) notice(els.addMsg, (res.j && res.j.detail) || "დამატება ვერ მოხერხდა.", "bad");
+      else { notice(els.addMsg, "ბარათი დაემატა: " + esc(card), "ok"); els.newCard.value = ""; load(); }
     });
   }
   els.addBtn.addEventListener("click", addCard);
@@ -151,7 +309,6 @@
     if (e.key === "Enter") { e.preventDefault(); addCard(); }
   });
 
-  // "Capture card": focus the field; a USB tap types the id + Enter -> add.
   els.captureBtn.addEventListener("click", function () {
     els.newCard.focus();
     els.captureHint.classList.remove("hidden");
@@ -167,27 +324,16 @@
     els.importBtn.disabled = true;
     notice(els.importMsg, "მიმდინარეობს იმპორტი…", "warn");
     fetch("/api/people/import", { method: "POST", body: fd })
-      .then(function (r) {
-        if (r.status === 401) { window.location.href = "/login"; throw new Error("auth"); }
-        return r.json();
-      })
+      .then(function (r) { if (r.status === 401) { window.location.href = "/login"; throw new Error("auth"); } return r.json(); })
       .then(function (rep) {
-        var parts = [
-          "დაემატა: " + rep.added,
-          "დუბლიკატი: " + rep.duplicate_count,
-          "შეცდომა: " + rep.invalid_count,
-          "სულ ხაზი: " + rep.total_rows,
-        ];
+        var parts = ["დაემატა: " + rep.added, "დუბლიკატი: " + rep.duplicate_count,
+                     "შეცდომა: " + rep.invalid_count, "სულ ხაზი: " + rep.total_rows];
         var kind = rep.invalid_count > 0 || rep.duplicate_count > 0 ? "warn" : "ok";
         var html = parts.join(" • ");
-        if (rep.duplicates && rep.duplicates.length) {
-          html += "<br><small>დუბლიკატები (ხაზი): " +
-            rep.duplicates.map(function (d) { return d.row + ":" + esc(d.card_id); }).join(", ") + "</small>";
-        }
-        if (rep.invalid && rep.invalid.length) {
-          html += "<br><small>შეცდომები (ხაზი): " +
-            rep.invalid.map(function (d) { return d.row + ":" + esc(d.reason); }).join(", ") + "</small>";
-        }
+        if (rep.duplicates && rep.duplicates.length)
+          html += "<br><small>დუბლიკატები (ხაზი): " + rep.duplicates.map(function (d) { return d.row + ":" + esc(d.card_id); }).join(", ") + "</small>";
+        if (rep.invalid && rep.invalid.length)
+          html += "<br><small>შეცდომები (ხაზი): " + rep.invalid.map(function (d) { return d.row + ":" + esc(d.reason); }).join(", ") + "</small>";
         notice(els.importMsg, html, kind);
         els.importFile.value = "";
         load();
@@ -196,10 +342,26 @@
       .finally(function () { els.importBtn.disabled = false; });
   });
 
-  // ----------------------------- search ----------------------------------- //
-  els.searchBtn.addEventListener("click", load);
-  els.search.addEventListener("keydown", function (e) {
-    if (e.key === "Enter") { e.preventDefault(); load(); }
+  // ----------------------------- search / filter / export ------------------ //
+  // Live, as-you-type search (client-side filter of the loaded list).
+  function applySearch() { searchText = els.search.value.trim().toLowerCase(); renderRows(); }
+  els.search.addEventListener("input", applySearch);
+  els.searchBtn.addEventListener("click", applySearch);
+  els.search.addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); applySearch(); } });
+  els.clearSearchBtn.addEventListener("click", function () { els.search.value = ""; applySearch(); });
+
+  els.filterChips.addEventListener("click", function (e) {
+    var chip = e.target.closest("button.chip");
+    if (!chip) return;
+    filter = chip.dataset.filter;
+    Array.prototype.forEach.call(els.filterChips.querySelectorAll(".chip"), function (c) {
+      c.classList.toggle("active", c === chip);
+    });
+    renderRows();
+  });
+
+  els.exportCsvBtn.addEventListener("click", function () {
+    window.location.href = "/api/people/export.csv";
   });
 
   // ----------------------------- chrome ----------------------------------- //
@@ -207,7 +369,6 @@
     api("POST", "/api/logout").then(function () { window.location.href = "/login"; });
   });
 
-  // Init: confirm session, then load.
   api("GET", "/api/me").then(function (res) {
     if (res.j && res.j.username) els.userLabel.textContent = res.j.username;
     renderHead();

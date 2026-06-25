@@ -50,7 +50,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
 
     def _proxy(self, method: str) -> None:
         length = int(self.headers.get("Content-Length", 0) or 0)
-        body = self.rfile.read(length) if length else None
+        try:
+            body = self.rfile.read(length) if length else None
+        except (ConnectionError, OSError):
+            return  # client went away while sending the body
 
         out_headers = {}
         for k, v in self.headers.items():
@@ -62,25 +65,40 @@ class ProxyHandler(BaseHTTPRequestHandler):
         # Tell the app it's effectively HTTPS (so cookies are marked Secure).
         out_headers.setdefault("X-Forwarded-Proto", "https")
 
+        # Generous timeout: large .xlsx/CSV exports can take a few seconds.
+        conn = http.client.HTTPConnection(APP_HOST, APP_PORT, timeout=120)
         try:
-            conn = http.client.HTTPConnection(APP_HOST, APP_PORT, timeout=30)
             conn.request(method, self.path, body=body, headers=out_headers)
             resp = conn.getresponse()
             data = resp.read()
-        except Exception as exc:  # noqa: BLE001
-            self.send_error(502, f"upstream error: {exc}")
+        except Exception as exc:  # noqa: BLE001  (upstream/app unreachable)
+            self._safe_error(502, f"upstream error: {exc}")
+            conn.close()
             return
 
-        self.send_response(resp.status)
-        for k, v in resp.getheaders():
-            if k.lower() in _HOP_BY_HOP:
-                continue
-            self.send_header(k, v)
-        self.send_header("Content-Length", str(len(data)))
-        self.end_headers()
-        if data:
-            self.wfile.write(data)
-        conn.close()
+        try:
+            self.send_response(resp.status)
+            for k, v in resp.getheaders():
+                if k.lower() in _HOP_BY_HOP:
+                    continue
+                self.send_header(k, v)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            # HEAD responses must carry headers but no body.
+            if data and method != "HEAD":
+                self.wfile.write(data)
+        except (ConnectionError, OSError):
+            # Client disconnected mid-response — normal for kiosk refreshes /
+            # tunnel hiccups. Drop quietly instead of dumping a traceback.
+            pass
+        finally:
+            conn.close()
+
+    def _safe_error(self, code: int, message: str) -> None:
+        try:
+            self.send_error(code, message)
+        except (ConnectionError, OSError):
+            pass
 
     def do_GET(self):     self._proxy("GET")      # noqa: E704
     def do_POST(self):    self._proxy("POST")     # noqa: E704

@@ -38,6 +38,7 @@ class Settings:
     host: str
     port: int
     db_path: Path
+    seed_sample_cards: bool
 
     @property
     def tz(self) -> ZoneInfo:
@@ -65,6 +66,11 @@ def _get(name: str, default: str | None = None) -> str:
     return val if val is not None else ""
 
 
+def _get_bool(name: str, default: bool) -> bool:
+    raw = _get(name, str(default)).strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     timezone = _get("TIMEZONE", "Asia/Tbilisi").strip()
@@ -82,6 +88,10 @@ def get_settings() -> Settings:
     if not db_path.is_absolute():
         db_path = ROOT / db_path
 
+    # Default FALSE: a production kiosk should start with only the admin and the
+    # real imported cards, not demo data. Tests/dev can set it true.
+    seed_sample_cards = _get_bool("SEED_SAMPLE_CARDS", False)
+
     return Settings(
         timezone=timezone,
         admin_username=admin_username,
@@ -91,6 +101,7 @@ def get_settings() -> Settings:
         host=host,
         port=port,
         db_path=db_path,
+        seed_sample_cards=seed_sample_cards,
     )
 
 

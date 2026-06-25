@@ -52,8 +52,12 @@ def day(date_str: str = Query(alias="date"), session: Session = Depends(get_sess
     rows = R.day_detail(session, d)
     return {
         "date": d.isoformat(),
-        "count": len(rows),
-        "rows": [{"card_id": r.card_id, "time": r.time} for r in rows],
+        "people": len(rows),                      # distinct people who ate
+        "meals": sum(r.count for r in rows),      # total meals
+        "rows": [
+            {"card_id": r.card_id, "count": r.count, "times": r.times}
+            for r in rows
+        ],
     }
 
 

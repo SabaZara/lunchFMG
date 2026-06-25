@@ -2,7 +2,9 @@
 
 A single-PC cafeteria access system for ~250 people. Each person has a unique
 ID card. They tap the card on a USB reader at one kiosk station to claim their
-daily meal. **Each person may eat once per calendar day.** You (the operator)
+daily meal. **Each person may eat up to a per-card daily limit (default 2 meals
+per calendar day); you can change the limit per card or in bulk from admin.**
+You (the operator)
 manage cards and view reports **remotely over the internet**; the company that
 runs the kiosk only ever sees the scan screen.
 
@@ -59,7 +61,8 @@ On the **first run** (needs internet once) `start.bat` will:
 * create a Python virtual environment in `.venv` and install dependencies,
 * generate `SECRET_KEY` and `TUNNEL_SECRET` in `.env` if they are blank,
 * run startup checks (refuses a weak password / missing `SECRET_KEY`),
-* seed the database (admin account + a few sample cards) if `lunch.db` is missing,
+* create the database with the admin account if `lunch.db` is missing
+  (no demo cards by default — set `SEED_SAMPLE_CARDS=true` in `.env` for a demo),
 * download `ngrok.exe`,
 * start the app + the local proxy + the ngrok tunnel hidden in the background,
 * automatically open the kiosk scan screen,
@@ -68,8 +71,16 @@ On the **first run** (needs internet once) `start.bat` will:
 After first setup, **scanning runs offline forever**. The tunnel only matters
 when you want remote admin.
 
-To reopen the scan screen, double-click `kiosk.bat`. To stop the background
-app/proxy/tunnel processes, double-click `stop.bat`.
+**After the first setup, use `quick-start.bat` for a fast launch** — it skips
+the dependency install / config / seed steps and just (re)starts the app, proxy,
+and tunnel. Run the full `start.bat` only after an update or if something is
+broken. To reopen just the scan screen, double-click `kiosk.bat`. To stop the
+background app/proxy/tunnel processes, double-click `stop.bat`.
+
+> You don't have to run `stop.bat`. Closing the start window or shutting down
+> leaves the background processes running until the next reboot or the next
+> `start.bat`/`quick-start.bat` (which clean up old processes automatically).
+> `stop.bat` is only for stopping them without rebooting.
 
 > If Python is missing, the launcher tells you to install Python 3.11+ and to
 > check **"Add Python to PATH"** during installation.
@@ -295,7 +306,8 @@ scripts/        seed + start.bat helpers
 tests/          acceptance tests
 run.py          entry point (validates config, then launches uvicorn)
 tunnel_proxy.py local header-injecting proxy (ngrok -> proxy -> app)
-start.bat       one-click Windows setup + run + tunnel
+start.bat       one-click Windows setup + run + tunnel (first run / after updates)
+quick-start.bat fast relaunch after setup (skips install/config, just launches)
 kiosk.bat       reopens the local kiosk scan screen
 kiosk-test.bat  opens the local card-reader simulator
 diagnose.bat    writes diagnose.txt when startup fails

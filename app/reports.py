@@ -27,6 +27,8 @@ L_NOT_ATE = "არ უჭამია"
 L_TIME = "დრო"
 L_DATE = "თარიღი"
 L_COUNT = "რაოდენობა"
+L_MEALS = "კვების რაოდენობა"
+L_LIMIT = "დღიური ლიმიტი"
 L_DAYS_ATTENDED = "დასწრების დღეები"
 L_DAYS_IN_RANGE = "დღეები პერიოდში"
 L_TOTAL_ATE = "სულ ნაჭამი"
@@ -38,17 +40,26 @@ L_PERIOD = "პერიოდი"
 def today_summary(session: Session) -> dict:
     tz = get_settings().tz
     today = local_date_for(utc_now(), tz)
-    ate = session.exec(
+    # total meals claimed today (one row per meal)
+    meals = session.exec(
         select(func.count()).select_from(Scan).where(Scan.local_date == today)
+    ).one()
+    # distinct PEOPLE who ate at least once today
+    people_ate = session.exec(
+        select(func.count(func.distinct(Scan.person_id))).where(Scan.local_date == today)
     ).one()
     active = session.exec(
         select(func.count()).select_from(Person).where(Person.active == True)  # noqa: E712
     ).one()
     return {
         "date": today.isoformat(),
-        "ate": int(ate),
+        # `ate` kept = distinct people (back-compat); `meals` = total meals.
+        "ate": int(people_ate),
+        "people_ate": int(people_ate),
+        "meals": int(meals),
         "active": int(active),
-        "remaining": max(int(active) - int(ate), 0),
+        # people who have NOT eaten at all yet today
+        "remaining": max(int(active) - int(people_ate), 0),
     }
 
 
@@ -71,16 +82,27 @@ def daily_counts(session: Session, frm: date, to: date) -> list[dict]:
 @dataclass
 class DayRow:
     card_id: str
-    time: str
+    count: int
+    times: list[str]
 
 
 def day_detail(session: Session, day: date) -> list[DayRow]:
-    """Who ate on a given local day, by card_id + local time."""
+    """Who ate on a given local day, GROUPED per card: meal count + all times.
+
+    A person who ate twice appears as ONE row with count=2 and both times.
+    """
     tz = get_settings().tz
     scans = session.exec(
         select(Scan).where(Scan.local_date == day).order_by(Scan.scanned_at)
     ).all()
-    return [DayRow(card_id=s.card_id, time=local_time_str(s.scanned_at, tz)) for s in scans]
+    grouped: dict[str, list[str]] = {}
+    for s in scans:
+        grouped.setdefault(s.card_id, []).append(local_time_str(s.scanned_at, tz))
+    rows = [DayRow(card_id=cid, count=len(times), times=times)
+            for cid, times in grouped.items()]
+    # most meals first, then by card id for stable ordering
+    rows.sort(key=lambda r: (-r.count, r.card_id))
+    return rows
 
 
 def detail_rows(session: Session, frm: date, to: date) -> list[dict]:
@@ -112,15 +134,17 @@ def attendance(session: Session, frm: date, to: date) -> dict:
         select(Person).where(Person.active == True).order_by(Person.card_id)  # noqa: E712
     ).all()
 
-    # person_id -> set of local_dates attended within range
+    # person_id -> set of local_dates attended; and total meal count in range
     scans = session.exec(
         select(Scan.person_id, Scan.local_date).where(
             Scan.local_date >= frm, Scan.local_date <= to
         )
     ).all()
     attended: dict[int, set] = {}
+    meal_count: dict[int, int] = {}
     for pid, d in scans:
         attended.setdefault(pid, set()).add(d)
+        meal_count[pid] = meal_count.get(pid, 0) + 1
 
     days = _days_in_range(frm, to)
     single = days == 1
@@ -135,6 +159,8 @@ def attendance(session: Session, frm: date, to: date) -> dict:
                 "card_id": p.card_id,
                 "days_attended": n,
                 "attended": n > 0,
+                "meals": meal_count.get(p.id, 0),       # total meals in range
+                "daily_limit": int(p.daily_limit),
             }
         )
     if not single:
@@ -166,9 +192,10 @@ def attendance_csv(data: dict) -> bytes:
     buf = io.StringIO()
     w = csv.writer(buf)
     if data["single_day"]:
-        w.writerow([L_CARD_ID, L_STATUS])
+        w.writerow([L_CARD_ID, L_STATUS, L_MEALS, L_LIMIT])
         for r in data["rows"]:
-            w.writerow([r["card_id"], L_ATE if r["attended"] else L_NOT_ATE])
+            w.writerow([r["card_id"], L_ATE if r["attended"] else L_NOT_ATE,
+                        r.get("meals", 0), r.get("daily_limit", "")])
         w.writerow([])
         w.writerow([L_TOTAL_ATE, data["total_ate"]])
         w.writerow([L_TOTAL_ACTIVE, data["total_active"]])
@@ -236,15 +263,15 @@ def attendance_xlsx(data: dict) -> bytes:
     ws.title = "დასწრება"
 
     if data["single_day"]:
-        ws.append([L_CARD_ID, L_STATUS])
-        _style_header(ws, 2)
+        ws.append([L_CARD_ID, L_STATUS, L_MEALS, L_LIMIT])
+        _style_header(ws, 4)
         for r in data["rows"]:
             status = L_ATE if r["attended"] else L_NOT_ATE
-            ws.append([str(r["card_id"]), status])
+            ws.append([str(r["card_id"]), status, r.get("meals", 0), r.get("daily_limit", "")])
             ws.cell(row=ws.max_row, column=2).fill = (
                 _ATE_FILL if r["attended"] else _NOT_FILL
             )
-        _autofit(ws, [22, 16])
+        _autofit(ws, [22, 16, 18, 16])
     else:
         ws.append([L_CARD_ID, L_DAYS_ATTENDED, L_DAYS_IN_RANGE, L_STATUS])
         _style_header(ws, 4)

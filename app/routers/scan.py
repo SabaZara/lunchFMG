@@ -19,6 +19,8 @@ class ScanResponse(BaseModel):
     status: str
     reason: str | None = None
     scanned_at: str | None = None
+    remaining: int | None = None
+    limit: int | None = None
 
 
 @router.post("/scan", response_model=ScanResponse)

@@ -7,10 +7,15 @@ from __future__ import annotations
 import io
 import threading
 from datetime import date, timedelta
+from pathlib import Path
 
 import pytest
 from openpyxl import Workbook, load_workbook
 from sqlmodel import Session, select
+
+# Real (gitignored) production card file, bundled as a fixture on machines that
+# have it. Tests using it skip cleanly when it is absent (e.g. clean checkout).
+REAL_CARDS_FILE = Path(__file__).resolve().parent / "data" / "real_cards.xlsx"
 
 
 # --------------------------- helpers --------------------------------------- #
@@ -52,15 +57,34 @@ def test_known_active_card_allowed_and_records(app_ctx):
     j = r.json()
     assert j["status"] == "ALLOWED"
     assert j["scanned_at"]  # local time string present
+    # default daily limit is 2 -> after the first meal, 1 remains
+    assert j["remaining"] == 1 and j["limit"] == 2
 
 
-def test_same_card_same_day_denied(app_ctx):
+def test_daily_limit_two_meals_then_denied(app_ctx):
+    """Default limit 2: two meals allowed, the third denied (limit reached)."""
     ctx = app_ctx
     _seed_cards(ctx)
-    ctx["client"].post("/api/scan", json={"card_id": "1001"})
-    j = ctx["client"].post("/api/scan", json={"card_id": "1001"}).json()
-    assert j["status"] == "DENIED"
-    assert j["reason"] == "დღეს უკვე ნაჭამია"
+    c = ctx["client"]
+    j1 = c.post("/api/scan", json={"card_id": "1001"}).json()
+    assert j1["status"] == "ALLOWED" and j1["remaining"] == 1
+    j2 = c.post("/api/scan", json={"card_id": "1001"}).json()
+    assert j2["status"] == "ALLOWED" and j2["remaining"] == 0
+    j3 = c.post("/api/scan", json={"card_id": "1001"}).json()
+    assert j3["status"] == "DENIED"
+    assert j3["reason"] == "დღის ლიმიტი ამოიწურა"
+
+
+def test_daily_limit_one_respected(app_ctx):
+    """A card set to limit 1 behaves like the old once-per-day rule."""
+    ctx = app_ctx
+    _login(ctx)
+    H = ctx["headers"]
+    c = ctx["client"]
+    pid = c.post("/api/people", headers=H, json={"card_id": "ONE1", "daily_limit": 1}).json()["id"]
+    assert c.post("/api/scan", json={"card_id": "ONE1"}).json()["status"] == "ALLOWED"
+    j = c.post("/api/scan", json={"card_id": "ONE1"}).json()
+    assert j["status"] == "DENIED" and j["reason"] == "დღის ლიმიტი ამოიწურა"
 
 
 def test_unknown_card_denied(app_ctx):
@@ -103,8 +127,8 @@ def test_midnight_reset(app_ctx):
     assert j["status"] == "ALLOWED"
 
 
-def test_concurrent_taps_exactly_one_allowed(app_ctx):
-    """Once-per-day holds under concurrency: exactly one ALLOWED."""
+def test_concurrent_taps_respect_limit(app_ctx):
+    """Under concurrency the daily limit holds: exactly `limit` ALLOWED."""
     ctx = app_ctx
     _seed_cards(ctx)
     results = []
@@ -122,7 +146,8 @@ def test_concurrent_taps_exactly_one_allowed(app_ctx):
         t.join()
 
     allowed = sum(1 for s in results if s == "ALLOWED")
-    assert allowed == 1, f"expected exactly one ALLOWED, got {allowed}: {results}"
+    # seeded cards use the default limit of 2
+    assert allowed == 2, f"expected exactly 2 ALLOWED, got {allowed}: {results}"
 
 
 def test_leading_zeros_preserved_through_scan(app_ctx):
@@ -130,9 +155,11 @@ def test_leading_zeros_preserved_through_scan(app_ctx):
     _seed_cards(ctx)
     j = ctx["client"].post("/api/scan", json={"card_id": "0573856032"}).json()
     assert j["status"] == "ALLOWED"
-    # And it must be denied on a second tap by the SAME exact string.
+    # Second tap still allowed (limit 2); third denied.
     j2 = ctx["client"].post("/api/scan", json={"card_id": "0573856032"}).json()
-    assert j2["status"] == "DENIED"
+    assert j2["status"] == "ALLOWED"
+    j3 = ctx["client"].post("/api/scan", json={"card_id": "0573856032"}).json()
+    assert j3["status"] == "DENIED"
 
 
 # --------------------------- admin / CRUD ---------------------------------- #
@@ -164,6 +191,93 @@ def test_admin_crud_and_unique_enforcement(app_ctx):
     # delete
     r = c.delete(f"/api/people/{pid}", headers=H)
     assert r.status_code == 204
+
+
+def test_admin_toggle_ate_today(app_ctx):
+    """Admin can mark/un-mark whether a person ate today; reflects in scan logic."""
+    ctx = app_ctx
+    _login(ctx)
+    H = ctx["headers"]
+    c = ctx["client"]
+
+    r = c.post("/api/people", headers=H, json={"card_id": "EAT001"})
+    pid = r.json()["id"]
+    assert r.json()["ate_today"] is False and r.json()["ate_count"] == 0
+    assert r.json()["daily_limit"] == 2
+
+    # mark eaten -> fills up to the daily limit (2)
+    r = c.post(f"/api/people/{pid}/ate", headers=H, json={"ate": True})
+    assert r.status_code == 200 and r.json()["ate_count"] == 2
+
+    # marking again is idempotent (already at the limit)
+    r = c.post(f"/api/people/{pid}/ate", headers=H, json={"ate": True})
+    assert r.json()["ate_count"] == 2
+
+    # a real kiosk scan now reports limit reached (consistent with the manual mark)
+    j = c.post("/api/scan", json={"card_id": "EAT001"}).json()
+    assert j["status"] == "DENIED" and j["reason"] == "დღის ლიმიტი ამოიწურა"
+
+    # un-mark -> clears all of today's meals
+    r = c.post(f"/api/people/{pid}/ate", headers=H, json={"ate": False})
+    assert r.status_code == 200 and r.json()["ate_count"] == 0
+
+    # now the kiosk allows the meal again
+    j = c.post("/api/scan", json={"card_id": "EAT001"}).json()
+    assert j["status"] == "ALLOWED"
+
+    # endpoint is gated (no secret -> 403)
+    assert c.post(f"/api/people/{pid}/ate", json={"ate": True}).status_code == 403
+
+
+def test_bulk_operations_and_export(app_ctx):
+    """Bulk delete / activate / deactivate / ate / unate + CSV export."""
+    ctx = app_ctx
+    _login(ctx)
+    H = ctx["headers"]
+    c = ctx["client"]
+
+    ids = []
+    for cid in ["B01", "B02", "B03", "B04"]:
+        ids.append(c.post("/api/people", headers=H, json={"card_id": cid}).json()["id"])
+
+    # bulk deactivate two
+    r = c.post("/api/people/bulk", headers=H,
+               json={"action": "deactivate", "ids": ids[:2]})
+    assert r.json()["affected"] == 2
+    listed = {p["card_id"]: p for p in c.get("/api/people", headers=H).json()}
+    assert listed["B01"]["active"] is False and listed["B03"]["active"] is True
+
+    # bulk mark ate for three
+    r = c.post("/api/people/bulk", headers=H, json={"action": "ate", "ids": ids[:3]})
+    assert r.json()["affected"] == 3
+    listed = {p["card_id"]: p for p in c.get("/api/people", headers=H).json()}
+    assert listed["B01"]["ate_today"] and listed["B03"]["ate_today"] and not listed["B04"]["ate_today"]
+
+    # bulk un-ate two
+    r = c.post("/api/people/bulk", headers=H, json={"action": "unate", "ids": ids[:2]})
+    assert r.json()["affected"] == 2
+
+    # CSV export contains Georgian headers + a card id
+    exp = c.get("/api/people/export.csv", headers=H)
+    assert exp.status_code == 200
+    text = exp.content.decode("utf-8-sig")
+    assert "ბარათის ID" in text and "B04" in text
+
+    # bulk delete selected
+    r = c.post("/api/people/bulk", headers=H, json={"action": "delete", "ids": ids[:2]})
+    assert r.json()["affected"] == 2
+    remaining = {p["card_id"] for p in c.get("/api/people", headers=H).json()}
+    assert "B01" not in remaining and "B03" in remaining
+
+    # delete ALL
+    r = c.post("/api/people/bulk", headers=H, json={"action": "delete", "all": True})
+    assert r.json()["affected"] >= 1
+    assert c.get("/api/people", headers=H).json() == []
+
+    # unknown action rejected; endpoint gated
+    assert c.post("/api/people/bulk", headers=H, json={"action": "nope"}).status_code == 422
+    assert c.post("/api/people/bulk", json={"action": "delete", "all": True}).status_code == 403
+    assert c.get("/api/people/export.csv").status_code == 403
 
 
 def test_import_250_xlsx_leading_zeros(app_ctx):
@@ -234,6 +348,98 @@ def test_csv_import_bom_tolerant(app_ctx):
     assert any(p["card_id"] == "0012" for p in listed)
 
 
+def test_import_real_world_excel_hazards(app_ctx):
+    """A real ~250-card upload mixes string cells, NUMBER-typed cells (Excel
+    auto-types them), floats, and stray whitespace. Card IDs must survive as
+    text with leading zeros intact, and a card scanned afterward must match.
+    """
+    ctx = app_ctx
+    _login(ctx)
+    H = ctx["headers"]
+    c = ctx["client"]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["card_id"])          # header tolerated
+    ws.append([1001])               # integer-typed cell -> "1001"
+    ws.append([1002.0])             # float-typed cell    -> "1002"
+    ws.append(["  0573856032  "])   # whitespace + leading zeros -> "0573856032"
+    ws.append([" 0044 "])           # whitespace + leading zeros -> "0044"
+    ws.append([""])                 # blank -> skipped
+    buf = io.BytesIO()
+    wb.save(buf)
+
+    r = c.post("/api/people/import", headers=H,
+               files={"file": ("cards.xlsx", buf.getvalue(),
+                               "application/octet-stream")})
+    rep = r.json()
+    assert rep["added"] == 4, rep
+
+    listed = {p["card_id"] for p in c.get("/api/people", headers=H).json()}
+    assert {"1001", "1002", "0573856032", "0044"} <= listed
+
+    # The whitespace-padded, leading-zero card scans correctly at the kiosk.
+    j = c.post("/api/scan", json={"card_id": "0573856032"}).json()
+    assert j["status"] == "ALLOWED"
+
+
+@pytest.mark.skipif(not REAL_CARDS_FILE.exists(),
+                    reason="real_cards.xlsx fixture not present")
+def test_import_real_card_file(app_ctx):
+    """Import the actual production .xlsx and verify the end-to-end contract:
+    every card lands as text (leading zeros intact), no duplicates, and a known
+    leading-zero card both imports and scans. Re-import yields all duplicates.
+    """
+    ctx = app_ctx
+    _login(ctx)
+    H = ctx["headers"]
+    c = ctx["client"]
+
+    data = REAL_CARDS_FILE.read_bytes()
+
+    # What the file actually contains (computed, so the test isn't hard-coded
+    # to a row count and survives the file being updated).
+    wb = load_workbook(io.BytesIO(data), read_only=True, data_only=True)
+    ws = wb.active
+    raw = [row[0] for row in ws.iter_rows(min_col=1, max_col=1, values_only=True)]
+    expected = []
+    seen = set()
+    for v in raw:
+        if v is None:
+            continue
+        s = str(int(v)) if isinstance(v, float) and v.is_integer() else str(v)
+        s = s.strip()
+        if s and s.lower() not in {"card_id", "cardid", "card", "id", "ბარათი"}:
+            if s not in seen:
+                seen.add(s)
+                expected.append(s)
+    wb.close()
+    assert expected, "fixture appears empty"
+
+    r = c.post("/api/people/import", headers=H,
+               files={"file": ("real_cards.xlsx", data,
+                               "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    rep = r.json()
+    assert rep["added"] == len(expected), rep
+    assert rep["duplicate_count"] == 0
+    assert rep["invalid_count"] == 0
+
+    listed = {p["card_id"] for p in c.get("/api/people", headers=H).json()}
+    assert set(expected) <= listed
+    # Leading zeros must be preserved verbatim for any 0-prefixed card.
+    zero_cards = [e for e in expected if e.startswith("0")]
+    if zero_cards:
+        assert zero_cards[0] in listed
+        assert c.post("/api/scan", json={"card_id": zero_cards[0]}).json()["status"] == "ALLOWED"
+
+    # Re-importing the same file adds nothing and reports all as duplicates.
+    r2 = c.post("/api/people/import", headers=H,
+                files={"file": ("real_cards.xlsx", data,
+                                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")})
+    assert r2.json()["added"] == 0
+    assert r2.json()["duplicate_count"] == len(expected)
+
+
 # --------------------------- reports / exports ----------------------------- #
 def test_today_report_counts(app_ctx):
     ctx = app_ctx
@@ -244,6 +450,30 @@ def test_today_report_counts(app_ctx):
     assert t["ate"] == 1
     assert t["active"] >= 1
     assert t["remaining"] == t["active"] - t["ate"]
+
+
+def test_reports_count_people_vs_meals(app_ctx):
+    """Two meals by one person: today shows 1 person / 2 meals; the day view
+    groups that card into ONE row with count 2 and both times."""
+    ctx = app_ctx
+    _seed_cards(ctx)
+    _login(ctx)
+    H = ctx["headers"]
+    c = ctx["client"]
+    # 1001 has default limit 2 -> eat twice
+    c.post("/api/scan", json={"card_id": "1001"})
+    c.post("/api/scan", json={"card_id": "1001"})
+
+    t = c.get("/api/reports/today", headers=H).json()
+    assert t["people_ate"] == 1 and t["meals"] == 2
+    assert t["remaining"] == t["active"] - 1  # one person ate (not two)
+
+    today = date.today().isoformat()
+    day = c.get(f"/api/reports/day?date={today}", headers=H).json()
+    assert day["people"] == 1 and day["meals"] == 2
+    assert len(day["rows"]) == 1
+    row = day["rows"][0]
+    assert row["card_id"] == "1001" and row["count"] == 2 and len(row["times"]) == 2
 
 
 def test_attendance_xlsx_is_georgian_and_by_cardid(app_ctx):
@@ -299,6 +529,18 @@ def test_scan_page_and_api_always_open(app_ctx):
     assert c.post("/api/scan", json={"card_id": "whatever"}).status_code == 200
 
 
+def test_gate_denies_unknown_paths_by_default(app_ctx):
+    ctx = app_ctx
+    c = ctx["client"]
+    # An unlisted path (no allowlist match) must require the secret, not fall
+    # through to allowed. With the secret it 404s (no such route) but is NOT
+    # blocked by the gate; without it, 403.
+    assert c.get("/totally-unknown-path").status_code == 403
+    assert c.get("/api/unknown").status_code == 403
+    # Static helper assets for the test page are local-only too.
+    assert c.get("/static/kiosk-test.js", headers=ctx["headers"]).status_code == 403
+
+
 def test_kiosk_test_page_is_local_only(app_ctx):
     ctx = app_ctx
     c = ctx["client"]
@@ -332,6 +574,7 @@ def test_weak_password_refused():
         host="127.0.0.1",
         port=8000,
         db_path=__import__("pathlib").Path("x.db"),
+        seed_sample_cards=False,
     )
     with pytest.raises(ConfigError):
         validate_settings(s)
@@ -349,6 +592,7 @@ def test_missing_secret_key_refused():
         host="127.0.0.1",
         port=8000,
         db_path=__import__("pathlib").Path("x.db"),
+        seed_sample_cards=False,
     )
     with pytest.raises(ConfigError):
         validate_settings(s)

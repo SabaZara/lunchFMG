@@ -49,24 +49,35 @@ def main() -> int:
     creationflags = 0
     start_new_session = False
     if os.name == "nt":
+        # CREATE_NO_WINDOW hides the console. Do NOT also pass DETACHED_PROCESS:
+        # the two are mutually exclusive and CreateProcess fails with
+        # ERROR_INVALID_PARAMETER (87) if both are set. CREATE_NEW_PROCESS_GROUP
+        # is compatible and lets stop.bat kill the whole tree.
         creationflags = (
             getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            | getattr(subprocess, "DETACHED_PROCESS", 0)
             | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         )
     else:
         start_new_session = True
 
-    proc = subprocess.Popen(
-        args.command,
-        cwd=ROOT,
-        env=env,
-        stdin=subprocess.DEVNULL,
-        stdout=log,
-        stderr=subprocess.STDOUT,
-        creationflags=creationflags,
-        start_new_session=start_new_session,
-    )
+    try:
+        proc = subprocess.Popen(
+            args.command,
+            cwd=ROOT,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            creationflags=creationflags,
+            start_new_session=start_new_session,
+        )
+    except OSError as exc:
+        # Surface the real reason into the log so start.bat's "type app.log" shows it.
+        msg = f"[start_hidden] FAILED to launch {args.label}: {exc}\n"
+        log.write(msg.encode("utf-8", "replace"))
+        log.flush()
+        print(msg, file=sys.stderr)
+        return 1
 
     pid_file = ROOT / args.pid_file
     with pid_file.open("a", encoding="ascii") as f:

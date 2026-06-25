@@ -21,9 +21,17 @@
   <div class="container">
     <div id="globalMsg"></div>
 
+    <!-- Stats overview -->
+    <div class="stat-grid" style="margin-bottom:18px">
+      <div class="stat accent-primary"><div class="n" id="statTotal">–</div><div class="l">სულ ბარათი</div></div>
+      <div class="stat accent-ok"><div class="n" id="statAte">–</div><div class="l">დღეს ნაჭამი</div></div>
+      <div class="stat"><div class="n" id="statActive">–</div><div class="l">აქტიური</div></div>
+      <div class="stat accent-warn"><div class="n" id="statRemaining">–</div><div class="l">დარჩენილი</div></div>
+    </div>
+
     <!-- Add / capture a card -->
     <div class="card">
-      <h2>ბარათის დამატება</h2>
+      <h2><span class="h2-ico">➕</span> ბარათის დამატება</h2>
       <div class="row">
         <input id="newCard" type="text" placeholder="ბარათის ID" />
         <button id="addBtn">დამატება</button>
@@ -35,28 +43,61 @@
 
     <!-- Bulk import -->
     <div class="card">
-      <h2>ჯგუფური იმპორტი (.xlsx / .csv)</h2>
+      <h2><span class="h2-ico">📥</span> ჯგუფური იმპორტი (.xlsx / .csv)</h2>
       <div class="row">
         <input id="importFile" type="file" accept=".xlsx,.csv" />
         <button id="importBtn">ატვირთვა</button>
       </div>
-      <small style="color:var(--muted)">ერთ სვეტში, ერთი ბარათის ID თითო ხაზზე. წამყვანი ნულები შენარჩუნდება.</small>
+      <div class="hint" style="margin-top:8px">ერთ სვეტში, ერთი ბარათის ID თითო ხაზზე. წამყვანი ნულები შენარჩუნდება.</div>
       <div id="importMsg"></div>
     </div>
 
     <!-- Card list -->
     <div class="card">
-      <h2>ბარათები</h2>
-      <div class="row" style="margin-bottom:12px">
-        <input id="search" type="text" placeholder="ძებნა ბარათის ID-ით…" />
+      <h2><span class="h2-ico">🪪</span> ბარათები</h2>
+
+      <div class="row" style="margin-bottom:10px">
+        <input id="search" type="text" placeholder="ძებნა ბარათის ID-ით…" style="min-width:220px" />
         <button id="searchBtn" class="ghost">ძებნა</button>
+        <button id="clearSearchBtn" class="ghost">გასუფთავება</button>
+        <span class="spacer" style="flex:1"></span>
+        <button id="exportCsvBtn" class="ghost small">CSV ექსპორტი</button>
+      </div>
+
+      <!-- filter chips -->
+      <div class="chips" id="filterChips" style="margin-bottom:12px">
+        <button class="chip active" data-filter="all">ყველა</button>
+        <button class="chip" data-filter="active">აქტიური</button>
+        <button class="chip" data-filter="inactive">გათიშული</button>
+        <button class="chip" data-filter="ate">ნაჭამი</button>
+        <button class="chip" data-filter="notate">არ უჭამია</button>
         <span class="spacer" style="flex:1"></span>
         <span id="countLabel" style="color:var(--muted)"></span>
       </div>
-      <table>
-        <thead id="tableHead"></thead>
-        <tbody id="tableBody"></tbody>
-      </table>
+
+      <!-- bulk action toolbar (shown when rows are selected) -->
+      <div class="bulkbar hidden" id="bulkBar">
+        <span id="bulkCount" class="bulk-count">0 მონიშნული</span>
+        <span class="spacer" style="flex:1"></span>
+        <button class="small ghost" data-bulk="setlimit">ლიმიტის დაყენება</button>
+        <button class="small ghost" data-bulk="ate">მონიშვნა: ჭამა</button>
+        <button class="small ghost" data-bulk="unate">ჭამის მოხსნა</button>
+        <button class="small ghost" data-bulk="activate">ჩართვა</button>
+        <button class="small ghost" data-bulk="deactivate">გათიშვა</button>
+        <button class="small danger" data-bulk="delete">მონიშნულის წაშლა</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead id="tableHead"></thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+
+      <div class="row" style="margin-top:14px">
+        <span class="spacer" style="flex:1"></span>
+        <button id="deleteAllBtn" class="small danger" title="ყველა ბარათის წაშლა">ყველას წაშლა</button>
+      </div>
     </div>
   </div>
 

@@ -25,6 +25,25 @@ REM ===========================================================================
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
+REM On the FIRST pass, re-launch this script in a child cmd whose entire output
+REM is copied to start-log.txt, then ALWAYS pause. This guarantees a transcript
+REM and a visible window even if the work aborts (parse error, crash, etc.).
+if not "%~1"=="__inner" (
+  echo Starting LUNCH... a full log is being written to start-log.txt
+  cmd /v:on /c ""%~f0" __inner" > "start-log.txt" 2>&1
+  set "RC=!errorlevel!"
+  echo.
+  type "start-log.txt"
+  echo.
+  echo ===========================================================================
+  if not "!RC!"=="0" echo [start.bat] finished with code !RC!. See start-log.txt above.
+  echo Press any key to close this window . . .
+  pause >nul
+  exit /b !RC!
+)
+
+setlocal EnableDelayedExpansion
+
 echo.
 echo === LUNCH meal-access : startup ===
 echo.
@@ -41,7 +60,6 @@ if not defined PY (
   echo [ERROR] Python was not found on PATH.
   echo         Install Python 3.11+ from https://www.python.org/downloads/
   echo         and CHECK "Add Python to PATH" during install, then re-run this file.
-  pause
   exit /b 1
 )
 echo Using Python launcher: %PY%
@@ -54,7 +72,6 @@ if not exist ".venv\Scripts\python.exe" (
   %PY% -m venv .venv
   if errorlevel 1 (
     echo [ERROR] Failed to create the virtual environment.
-    pause
     exit /b 1
   )
 )
@@ -63,7 +80,7 @@ set "VENV_PY=.venv\Scripts\python.exe"
 REM ---------------------------------------------------------------------------
 REM  3. Install / update dependencies
 REM ---------------------------------------------------------------------------
-echo Installing dependencies (first run needs internet) ...
+echo Installing dependencies ^(first run needs internet^) ...
 
 REM Some Windows Python installs create a venv without pip. Bootstrap it.
 "%VENV_PY%" -m pip --version >nul 2>&1
@@ -77,13 +94,11 @@ if errorlevel 1 (
   "%VENV_PY%" -c "import urllib.request; urllib.request.urlretrieve('https://bootstrap.pypa.io/get-pip.py','get-pip.py')"
   if errorlevel 1 (
     echo [ERROR] Could not download get-pip.py. Check internet and try again.
-    pause
     exit /b 1
   )
   "%VENV_PY%" get-pip.py
   if errorlevel 1 (
     echo [ERROR] Could not install pip. Install the full Python 3.11 installer with pip enabled.
-    pause
     exit /b 1
   )
   del /q get-pip.py >nul 2>&1
@@ -93,7 +108,6 @@ if errorlevel 1 (
 "%VENV_PY%" -m pip install -r requirements.txt
 if errorlevel 1 (
   echo [ERROR] pip install failed. Check your internet connection and try again.
-  pause
   exit /b 1
 )
 
@@ -113,7 +127,6 @@ REM nothing on success; it edits .env in place.
 "%VENV_PY%" scripts\ensure_secrets.py
 if errorlevel 1 (
   echo [ERROR] Could not prepare secrets in .env
-  pause
   exit /b 1
 )
 
@@ -123,9 +136,8 @@ REM ---------------------------------------------------------------------------
 "%VENV_PY%" scripts\startup_prepare.py
 if errorlevel 1 (
   echo.
-  echo [ERROR] Startup checks failed (see message above).
+  echo [ERROR] Startup checks failed ^(see message above^).
   echo         Most likely: set a strong ADMIN_PASSWORD in .env, then re-run.
-  pause
   exit /b 1
 )
 
@@ -134,30 +146,25 @@ REM  6. Download ngrok.exe once
 REM ---------------------------------------------------------------------------
 if not exist "ngrok.exe" (
   echo Downloading ngrok.exe ...
-  "%VENV_PY%" -c "import urllib.request, zipfile, pathlib; zip_path='ngrok.zip'; urllib.request.urlretrieve('https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-windows-amd64.zip', zip_path); zipfile.ZipFile(zip_path).extract('ngrok.exe'); pathlib.Path(zip_path).unlink(missing_ok=True)"
+  "%VENV_PY%" scripts\download_ngrok.py
   if errorlevel 1 (
     echo [WARN] Could not download ngrok.exe. The app + scan screen will
     echo        still run locally; remote admin via tunnel will be unavailable
-    echo        until ngrok.exe is present.
+    echo        until ngrok.exe is present. See the manual download note above.
   )
 )
 
 REM ---------------------------------------------------------------------------
 REM  7. Read PORT / PROXY_PORT / ngrok settings from .env
 REM ---------------------------------------------------------------------------
+REM Parse .env in Python (batch is fragile with special chars in secrets and
+REM would otherwise abort the whole script silently). read_env.py prints clean
+REM `set "KEY=VALUE"` lines for PORT, PROXY_PORT, NGROK_AUTHTOKEN, NGROK_DOMAIN.
 set "PORT=8000"
+set "PROXY_PORT=8001"
 set "NGROK_AUTHTOKEN="
 set "NGROK_DOMAIN="
-for /f "usebackq tokens=1,* delims==" %%a in (".env") do (
-  if /i "%%a"=="PORT" set "PORT=%%b"
-  if /i "%%a"=="NGROK_AUTHTOKEN" set "NGROK_AUTHTOKEN=%%b"
-  if /i "%%a"=="NGROK_DOMAIN" set "NGROK_DOMAIN=%%b"
-)
-set /a PROXY_PORT=%PORT%+1
-set "PROXY_PORT=%PROXY_PORT%"
-set "NGROK_DOMAIN=%NGROK_DOMAIN:https://=%"
-set "NGROK_DOMAIN=%NGROK_DOMAIN:http://=%"
-if "%NGROK_DOMAIN:~-1%"=="/" set "NGROK_DOMAIN=%NGROK_DOMAIN:~0,-1%"
+for /f "usebackq delims=" %%i in (`"%VENV_PY%" scripts\read_env.py`) do %%i
 
 REM ---------------------------------------------------------------------------
 REM  8. Start the app (hidden) and the header-injecting proxy (hidden)
@@ -177,7 +184,6 @@ echo Starting the app on http://127.0.0.1:%PORT% ...
 "%VENV_PY%" scripts\start_hidden.py --label app --log app.log --pid-file lunch-pids.txt -- "%VENV_PY%" run.py
 if errorlevel 1 (
   echo [ERROR] Could not start the app. Check app.log.
-  pause
   exit /b 1
 )
 "%VENV_PY%" scripts\wait_for_http.py "http://127.0.0.1:%PORT%/healthz" --label app --seconds 25
@@ -188,7 +194,6 @@ if errorlevel 1 (
   if exist "app.log" type "app.log"
   echo ---------------------------------------------------------------------------
   echo Try double-clicking stop.bat, then run start.bat again.
-  pause
   exit /b 1
 )
 
@@ -197,7 +202,6 @@ set "PROXY_PORT=%PROXY_PORT%"
 "%VENV_PY%" scripts\start_hidden.py --label proxy --env PROXY_PORT=%PROXY_PORT% --log proxy.log --pid-file lunch-pids.txt -- "%VENV_PY%" tunnel_proxy.py
 if errorlevel 1 (
   echo [ERROR] Could not start the tunnel proxy. Check proxy.log.
-  pause
   exit /b 1
 )
 "%VENV_PY%" scripts\wait_for_http.py "http://127.0.0.1:%PROXY_PORT%/healthz" --label proxy --seconds 15
@@ -208,7 +212,6 @@ if errorlevel 1 (
   if exist "proxy.log" type "proxy.log"
   echo ---------------------------------------------------------------------------
   echo Try double-clicking stop.bat, then run start.bat again.
-  pause
   exit /b 1
 )
 
@@ -222,31 +225,36 @@ REM ---------------------------------------------------------------------------
 REM  10. Start ngrok hidden, pointed at the PROXY port.
 REM      The stable public URL is saved into tunnel-url.txt and printed.
 REM ---------------------------------------------------------------------------
-if exist "ngrok.exe" (
-  if exist "tunnel-url.txt" del /q "tunnel-url.txt"
-  if exist "tunnel.log" del /q "tunnel.log"
-  if "%NGROK_AUTHTOKEN%"=="" (
-    echo [INFO] NGROK_AUTHTOKEN is empty in .env. Skipping remote admin tunnel.
-  ) else if "%NGROK_DOMAIN%"=="" (
-    echo [INFO] NGROK_DOMAIN is empty in .env. Skipping remote admin tunnel.
-  ) else (
-    echo Configuring ngrok auth token ...
-    ".\ngrok.exe" config add-authtoken "%NGROK_AUTHTOKEN%" >nul
-    if errorlevel 1 (
-      echo [WARN] Could not configure ngrok authtoken. Check NGROK_AUTHTOKEN in .env.
-    ) else (
-      echo Starting ngrok tunnel at https://%NGROK_DOMAIN% ...
-      "%VENV_PY%" scripts\start_hidden.py --label tunnel --log tunnel.log --pid-file lunch-pids.txt -- ".\ngrok.exe" http --url %NGROK_DOMAIN% http://127.0.0.1:%PROXY_PORT%
-      "%VENV_PY%" scripts\print_remote_url.py
-    )
-  )
-) else (
-  echo [INFO] Skipping tunnel (ngrok.exe missing).
+REM Flattened with goto + delayed expansion (!VAR!) so an empty/odd value can
+REM never mis-parse a nested parenthesized block and abort the script.
+if not exist "ngrok.exe" (
+  echo [INFO] Skipping tunnel ^(ngrok.exe missing^).
+  goto :after_tunnel
 )
+if exist "tunnel-url.txt" del /q "tunnel-url.txt"
+if exist "tunnel.log" del /q "tunnel.log"
+if "!NGROK_AUTHTOKEN!"=="" (
+  echo [INFO] NGROK_AUTHTOKEN is empty in .env. Skipping remote admin tunnel.
+  goto :after_tunnel
+)
+if "!NGROK_DOMAIN!"=="" (
+  echo [INFO] NGROK_DOMAIN is empty in .env. Skipping remote admin tunnel.
+  goto :after_tunnel
+)
+echo Configuring ngrok auth token ...
+".\ngrok.exe" config add-authtoken "!NGROK_AUTHTOKEN!" >nul
+if errorlevel 1 (
+  echo [WARN] Could not configure ngrok authtoken. Check NGROK_AUTHTOKEN in .env.
+  goto :after_tunnel
+)
+echo Starting ngrok tunnel at https://!NGROK_DOMAIN! ...
+"%VENV_PY%" scripts\start_hidden.py --label tunnel --log tunnel.log --pid-file lunch-pids.txt -- ".\ngrok.exe" http --url !NGROK_DOMAIN! http://127.0.0.1:!PROXY_PORT!
+"%VENV_PY%" scripts\print_remote_url.py
+:after_tunnel
 
 echo.
 echo ===========================================================================
-echo  KIOSK (local, offline):   http://127.0.0.1:%PORT%/
+echo  KIOSK ^(local, offline^):   http://127.0.0.1:%PORT%/
 echo  The kiosk page was opened automatically. Press F11 in the browser.
 echo.
 echo  REMOTE ADMIN URL is shown above and saved in tunnel-url.txt.
@@ -256,5 +264,4 @@ echo  To stop the background processes, double-click stop.bat.
 echo ===========================================================================
 echo.
 echo This window can stay open, or you can close it after copying the URLs.
-pause
 endlocal

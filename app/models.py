@@ -1,21 +1,25 @@
 """Database models.
 
-people  — one row per ID card (identified by card_id; name optional, hidden in UI)
-scans   — one row per claimed meal; UNIQUE(person_id, local_date) is the hard
-          once-per-day guarantee enforced at the DB level.
+people  — one row per ID card (identified by card_id; name optional, hidden in
+          UI). daily_limit = how many meals this card may claim per local day.
+scans   — one row per claimed meal. Multiple meals per day are allowed up to the
+          person's daily_limit; the count of today's scans is compared to the
+          limit at scan time (see scan_service).
 admins  — operator login accounts.
 """
 from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 from .timeutil import utc_now
 
 # Placeholder used when a card is imported/added without a real name.
 NAME_PLACEHOLDER = "----"
+
+# Default meals allowed per person per day.
+DEFAULT_DAILY_LIMIT = 2
 
 
 class Person(SQLModel, table=True):
@@ -30,15 +34,13 @@ class Person(SQLModel, table=True):
     full_name: str = Field(default=NAME_PLACEHOLDER)
     department: str | None = Field(default=None)
     active: bool = Field(default=True)
+    # How many meals this card may claim per local calendar day.
+    daily_limit: int = Field(default=DEFAULT_DAILY_LIMIT, nullable=False)
     created_at: datetime = Field(default_factory=utc_now)
 
 
 class Scan(SQLModel, table=True):
     __tablename__ = "scans"
-    __table_args__ = (
-        # The race-condition safety net: at most one meal per person per local day.
-        UniqueConstraint("person_id", "local_date", name="uq_person_local_date"),
-    )
 
     id: int | None = Field(default=None, primary_key=True)
     person_id: int = Field(foreign_key="people.id", index=True, nullable=False)

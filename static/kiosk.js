@@ -66,7 +66,12 @@
 
   function showResult(data) {
     if (data && data.status === "ALLOWED") {
-      setState("allowed", "ნებადართულია", data.scanned_at ? ("დრო: " + data.scanned_at) : "");
+      var sub = data.scanned_at ? ("დრო: " + data.scanned_at) : "";
+      if (typeof data.remaining === "number") {
+        // Show how many meals remain today for this card.
+        sub += (sub ? "  •  " : "") + "დარჩა: " + data.remaining;
+      }
+      setState("allowed", "ნებადართულია", sub);
       beep(true);
     } else {
       var reason = (data && data.reason) ? data.reason : "უარყოფილია";

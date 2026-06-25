@@ -6,6 +6,7 @@
     userLabel: document.getElementById("userLabel"),
     logoutBtn: document.getElementById("logoutBtn"),
     statAte: document.getElementById("statAte"),
+    statMeals: document.getElementById("statMeals"),
     statActive: document.getElementById("statActive"),
     statRemaining: document.getElementById("statRemaining"),
     todayDate: document.getElementById("todayDate"),
@@ -47,7 +48,8 @@
 
   function loadToday() {
     api("/api/reports/today").then(function (t) {
-      els.statAte.textContent = t.ate;
+      els.statAte.textContent = (t.people_ate != null ? t.people_ate : t.ate);
+      if (els.statMeals) els.statMeals.textContent = (t.meals != null ? t.meals : t.ate);
       els.statActive.textContent = t.active;
       els.statRemaining.textContent = t.remaining;
       els.todayDate.textContent = "თარიღი: " + t.date;
@@ -70,10 +72,15 @@
     var d = els.dayDate.value;
     if (!d) return;
     api("/api/reports/day?date=" + d).then(function (res) {
-      els.dayCount.textContent = "სულ: " + res.count;
+      var people = res.people != null ? res.people : (res.rows || []).length;
+      var meals = res.meals != null ? res.meals : people;
+      els.dayCount.textContent = "კაცი: " + people + "  •  სულ კვება: " + meals;
       els.dayBody.innerHTML = (res.rows || []).map(function (r) {
-        return '<tr><td class="ltr">' + esc(r.card_id) + '</td><td class="ltr">' + esc(r.time) + "</td></tr>";
-      }).join("") || '<tr><td colspan="2" style="text-align:center;color:var(--muted)">ამ დღეს არავის უჭამია</td></tr>';
+        var times = (r.times || (r.time ? [r.time] : [])).join(", ");
+        var countBadge = '<span class="badge ' + (r.count > 1 ? "warn-badge" : "ok") + '">' + r.count + "</span>";
+        return '<tr><td class="ltr mono">' + esc(r.card_id) + "</td>" +
+               "<td>" + countBadge + '</td><td class="ltr">' + esc(times) + "</td></tr>";
+      }).join("") || '<tr><td colspan="3" style="text-align:center;color:var(--muted);padding:18px">ამ დღეს არავის უჭამია</td></tr>';
     });
   }
 

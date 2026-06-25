@@ -6,11 +6,13 @@
 *.sqlite
 *.sqlite3
 
-# real card lists / imports
+# real card lists / imports (never commit real card IDs)
 cards*.xlsx
 cards*.csv
 *_cards.xlsx
 *_cards.csv
+tests/data/real_cards.xlsx
+tests/data/*.real.*
 
 # downloaded binaries
 cloudflared.exe
@@ -20,6 +22,18 @@ tunnel-url.txt
 lunch-pids.txt
 *.log
 *.zip
+
+# diagnostics / runtime
+diagnose.txt
+start-log.txt
+diag-app.log
+diag-pids.txt
+
+# standalone tester build artifacts
+kiosk-tester/.build-venv/
+kiosk-tester/build/
+kiosk-tester/dist/
+kiosk-tester/*.spec
 
 # python
 .venv/

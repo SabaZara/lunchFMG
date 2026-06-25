@@ -16,6 +16,8 @@ def _load_startup_stack(monkeypatch, db_path):
     monkeypatch.setenv("TUNNEL_SECRET", "t" * 32)
     monkeypatch.setenv("HOST", "127.0.0.1")
     monkeypatch.setenv("PORT", "8000")
+    # This test asserts demo cards are seeded once; enable the opt-in flag.
+    monkeypatch.setenv("SEED_SAMPLE_CARDS", "true")
 
     for name in (
         "app.config",

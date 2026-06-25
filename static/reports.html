@@ -21,11 +21,12 @@
   <div class="container">
     <!-- Today -->
     <div class="card">
-      <h2>დღეს</h2>
+      <h2><span class="h2-ico">📊</span> დღეს</h2>
       <div class="stat-grid">
-        <div class="stat"><div class="n" id="statAte">–</div><div class="l">ნაჭამი</div></div>
+        <div class="stat accent-ok"><div class="n" id="statAte">–</div><div class="l">ნაჭამი (კაცი)</div></div>
+        <div class="stat accent-primary"><div class="n" id="statMeals">–</div><div class="l">სულ კვება</div></div>
         <div class="stat"><div class="n" id="statActive">–</div><div class="l">აქტიური ბარათები</div></div>
-        <div class="stat"><div class="n" id="statRemaining">–</div><div class="l">დარჩენილი</div></div>
+        <div class="stat accent-warn"><div class="n" id="statRemaining">–</div><div class="l">ჯერ არ უჭამია</div></div>
       </div>
       <small id="todayDate" style="color:var(--muted)"></small>
     </div>
@@ -64,16 +65,18 @@
 
     <!-- Day detail -->
     <div class="card">
-      <h2>კონკრეტული დღე — ვინ ჭამა</h2>
+      <h2><span class="h2-ico">🍽</span> კონკრეტული დღე — ვინ ჭამა</h2>
       <div class="row" style="margin-bottom:10px">
         <input id="dayDate" type="date" class="ltr" />
         <button id="dayBtn" class="ghost">ჩვენება</button>
         <span id="dayCount" style="color:var(--muted)"></span>
       </div>
-      <table>
-        <thead><tr><th class="ltr">ბარათის ID</th><th class="ltr">დრო</th></tr></thead>
-        <tbody id="dayBody"></tbody>
-      </table>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th class="ltr">ბარათის ID</th><th>კვების რაოდენობა</th><th class="ltr">დროები</th></tr></thead>
+          <tbody id="dayBody"></tbody>
+        </table>
+      </div>
     </div>
   </div>
 

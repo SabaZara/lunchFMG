@@ -1,18 +1,19 @@
-"""Core once-per-day scan decision.
+"""Core meal-limit scan decision.
 
-Statuses are kept in English internally ("ALLOWED" / "DENIED") so other code
-and tests can key on them reliably. Only the human-facing reason text is
-Georgian.
+Each person may claim up to `daily_limit` meals per LOCAL calendar day
+(default 2). Statuses stay in English internally ("ALLOWED" / "DENIED") so other
+code and tests can key on them; only the human-facing reason text is Georgian.
 
-Race safety: we DO NOT SELECT-then-INSERT. We attempt the INSERT of a scan row
-guarded by UNIQUE(person_id, local_date). If it raises IntegrityError the
-person already ate today — exactly one concurrent tap can win.
+Race safety WITHOUT a unique constraint: we INSERT the scan, flush, then count
+today's scans for this person. If the count exceeds the limit, this tap lost a
+concurrent race and we roll it back. Combined with SQLite's serialized writes
+(busy_timeout) this yields "at most daily_limit ALLOWED" under concurrent taps.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func
 from sqlmodel import Session, select
 
 from .config import get_settings
@@ -26,19 +27,29 @@ STATUS_DENIED = "DENIED"
 # Georgian reason codes shown to the user.
 REASON_UNKNOWN_CARD = "უცნობი ბარათი"
 REASON_INACTIVE = "ბარათი გათიშულია"
-REASON_ALREADY_ATE = "დღეს უკვე ნაჭამია"
+REASON_LIMIT_REACHED = "დღის ლიმიტი ამოიწურა"
 
 
 @dataclass
 class ScanResult:
     status: str
     reason: str | None = None
-    scanned_at: str | None = None  # local HH:MM:SS for display
+    scanned_at: str | None = None   # local HH:MM:SS for display
+    remaining: int | None = None    # meals left today after this scan
+    limit: int | None = None        # the person's daily limit
 
 
 def normalize_card_id(raw: str) -> str:
     """Trim surrounding whitespace but preserve everything else (leading zeros)."""
     return (raw or "").strip()
+
+
+def _count_today(session: Session, person_id: int, day) -> int:  # noqa: ANN001
+    return int(session.exec(
+        select(func.count()).select_from(Scan).where(
+            Scan.person_id == person_id, Scan.local_date == day
+        )
+    ).one())
 
 
 def decide_scan(session: Session, raw_card_id: str) -> ScanResult:
@@ -55,25 +66,32 @@ def decide_scan(session: Session, raw_card_id: str) -> ScanResult:
     if not person.active:
         return ScanResult(status=STATUS_DENIED, reason=REASON_INACTIVE)
 
+    limit = max(int(person.daily_limit), 0)
     now = utc_now()
-    today_local = local_date_for(now, tz)
+    today = local_date_for(now, tz)
 
-    scan = Scan(
-        person_id=person.id,
-        card_id=card_id,
-        scanned_at=now,
-        local_date=today_local,
-    )
+    already = _count_today(session, person.id, today)
+    if already >= limit:
+        return ScanResult(status=STATUS_DENIED, reason=REASON_LIMIT_REACHED,
+                          remaining=0, limit=limit)
+
+    # Tentatively record the meal, then re-check under the actual row count to
+    # stay correct if two taps raced past the SELECT above.
+    scan = Scan(person_id=person.id, card_id=card_id, scanned_at=now, local_date=today)
     session.add(scan)
-    try:
-        session.commit()
-    except IntegrityError:
-        # UNIQUE(person_id, local_date) violated → already ate today.
+    session.flush()
+    count_after = _count_today(session, person.id, today)
+    if count_after > limit:
+        # We over-committed in a race — undo this one.
         session.rollback()
-        return ScanResult(status=STATUS_DENIED, reason=REASON_ALREADY_ATE)
+        return ScanResult(status=STATUS_DENIED, reason=REASON_LIMIT_REACHED,
+                          remaining=0, limit=limit)
 
+    session.commit()
     session.refresh(scan)
     return ScanResult(
         status=STATUS_ALLOWED,
         scanned_at=local_time_str(scan.scanned_at, tz),
+        remaining=max(limit - count_after, 0),
+        limit=limit,
     )
