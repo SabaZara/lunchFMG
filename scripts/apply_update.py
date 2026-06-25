@@ -29,7 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 # ---- repo config: EDIT THESE (or set the env vars in update.bat) ------------
-GITHUB_REPO = os.environ.get("GITHUB_REPO", "REPLACE_ME/lunchFMG").strip()
+GITHUB_REPO = os.environ.get("GITHUB_REPO", "SabaZara/lunchFMG").strip()
 GITHUB_BRANCH = os.environ.get("GITHUB_BRANCH", "main").strip()
 
 # Directories copied wholesale (their contents replace the local ones).

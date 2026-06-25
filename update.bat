@@ -13,7 +13,7 @@ REM ===========================================================================
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
-set "GITHUB_REPO=REPLACE_ME/lunchFMG"
+set "GITHUB_REPO=SabaZara/lunchFMG"
 set "GITHUB_BRANCH=main"
 
 set "VENV_PY=.venv\Scripts\python.exe"
