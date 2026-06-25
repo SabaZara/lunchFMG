@@ -83,3 +83,9 @@ def reports_page() -> FileResponse:
 @app.get("/healthz", include_in_schema=False)
 def healthz() -> JSONResponse:
     return JSONResponse({"ok": True})
+
+
+@app.get("/api/version", include_in_schema=False)
+def version() -> JSONResponse:
+    from . import __version__
+    return JSONResponse({"version": __version__})

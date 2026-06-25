@@ -521,6 +521,14 @@ def test_admin_blocked_without_tunnel_secret(app_ctx):
     assert c.get("/api/reports/today").status_code == 403
 
 
+def test_version_endpoint(app_ctx):
+    ctx = app_ctx
+    from app import __version__
+    r = ctx["client"].get("/api/version")  # always-open, no secret needed
+    assert r.status_code == 200
+    assert r.json()["version"] == __version__
+
+
 def test_scan_page_and_api_always_open(app_ctx):
     ctx = app_ctx
     c = ctx["client"]

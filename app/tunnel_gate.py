@@ -28,7 +28,9 @@ TUNNEL_HEADER = "x-tunnel-secret"
 FORWARDED_PROTO_HEADER = "x-forwarded-proto"
 
 # Always served locally (no secret) — the offline kiosk surface.
-_ALWAYS_OPEN_EXACT = {"/", "/healthz", "/favicon.ico"}
+# /api/version leaks nothing (just a version string) and lets the admin page
+# show the running version even before other gated calls.
+_ALWAYS_OPEN_EXACT = {"/", "/healthz", "/favicon.ico", "/api/version"}
 _ALWAYS_OPEN_PREFIXES = ("/static/", "/api/scan")
 
 # Local-only helper page (must NOT be reachable through the tunnel/proxy).

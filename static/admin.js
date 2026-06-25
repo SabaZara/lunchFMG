@@ -11,6 +11,7 @@
 
   var els = {
     userLabel: document.getElementById("userLabel"),
+    verBadge: document.getElementById("verBadge"),
     logoutBtn: document.getElementById("logoutBtn"),
     globalMsg: document.getElementById("globalMsg"),
     newCard: document.getElementById("newCard"),
@@ -368,6 +369,13 @@
   els.logoutBtn.addEventListener("click", function () {
     api("POST", "/api/logout").then(function () { window.location.href = "/login"; });
   });
+
+  // show the running app version in the topbar (handy after an update)
+  if (els.verBadge) {
+    fetch("/api/version").then(function (r) { return r.json(); })
+      .then(function (v) { if (v && v.version) els.verBadge.textContent = "v" + v.version; })
+      .catch(function () {});
+  }
 
   api("GET", "/api/me").then(function (res) {
     if (res.j && res.j.username) els.userLabel.textContent = res.j.username;
